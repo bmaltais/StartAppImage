@@ -31,6 +31,8 @@ Item {
 
   function move(dy) { view.cursor = Math.max(0, Math.min(view.rows.length - 1, view.cursor + dy)) }
 
+  function focusSearch() { search.forceActiveFocus() }
+
   function currentRow() { return list.itemAtIndex(Math.min(view.cursor, Math.max(0, view.rows.length - 1))) }
 
   onVisibleChanged: {
@@ -89,7 +91,7 @@ Item {
       }
       Button {
         iconText: ""
-        tooltipText: "Setup: launcher, file handler, command line"
+        tooltipText: "Settings"
         onClicked: view.svc.showSetup()
       }
       Button {
@@ -151,7 +153,7 @@ Item {
         Text {
           visible: search.text === ""
           anchors.verticalCenter: parent.verticalCenter
-          text: "Search installed apps"
+          text: "Search installed AppImages"
           color: Color.muted
           font: search.font
         }
@@ -168,30 +170,43 @@ Item {
       visible: view.svc.apps.length > 0
     }
 
-    // List
-    ListView {
-      id: list
+    // List, with a scroll bar when there are more apps than fit
+    RowLayout {
       Layout.fillWidth: true
       Layout.fillHeight: true
-      Layout.preferredHeight: contentHeight
-      clip: true
-      spacing: Style.spacing.lg
-      model: view.rows
+      Layout.preferredHeight: list.contentHeight
       visible: view.rows.length > 0
-      currentIndex: view.cursor
-      onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+      spacing: Style.spacing.md
 
-      delegate: AppRow {
-        width: ListView.view.width
-        app: modelData
-        current: index === view.cursor
-        updateTo: view.svc.updates[modelData.id] || ""
-        busy: view.svc.busyId === modelData.id || (view.svc.busyId === "*" && updateTo !== "")
-        onOpenRequested: view.svc.openApp(modelData)
-        onUpdateRequested: view.svc.updateApp(modelData.id)
-        onRemoveRequested: view.svc.removeApp(modelData.id)
-        onSettingsRequested: view.svc.showSettings(modelData)
-        onSelectRequested: { view.cursor = index; search.forceActiveFocus() }
+      ListView {
+        id: list
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        Layout.preferredHeight: contentHeight
+        clip: true
+        spacing: Style.spacing.lg
+        model: view.rows
+        currentIndex: view.cursor
+        onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+
+        delegate: AppRow {
+          width: ListView.view.width
+          app: modelData
+          current: index === view.cursor
+          updateTo: view.svc.updates[modelData.id] || ""
+          busy: view.svc.busyId === modelData.id || (view.svc.busyId === "*" && updateTo !== "")
+          onOpenRequested: view.svc.openApp(modelData)
+          onUpdateRequested: view.svc.updateApp(modelData.id)
+          onRemoveRequested: view.svc.removeApp(modelData.id)
+          onSettingsRequested: view.svc.showSettings(modelData)
+          onSelectRequested: { view.cursor = index; search.forceActiveFocus() }
+        }
+      }
+
+      ScrollTrack {
+        target: list
+        Layout.fillHeight: true
+        Layout.preferredWidth: implicitWidth
       }
     }
 
@@ -253,7 +268,7 @@ Item {
           Text {
             visible: source.text === ""
             anchors.verticalCenter: parent.verticalCenter
-            text: "github:owner/repo, https://... or /path/App.AppImage"
+            text: "GitHub link, owner/repo, download URL or /path/App.AppImage"
             color: Color.muted
             font: source.font
           }
@@ -261,7 +276,7 @@ Item {
       }
       Button {
         id: addButton
-        text: "Add"
+        text: "Install"
         selected: true
         onClicked: {
           var s = source.text.trim()
@@ -280,7 +295,7 @@ Item {
       spacing: Style.spacing.xxl
 
       Button {
-        text: "+  Add AppImage..."
+        text: "+  Install AppImage..."
         bordered: true
         onClicked: { view.adding = !view.adding; if (view.adding) source.forceActiveFocus(); else search.forceActiveFocus() }
       }

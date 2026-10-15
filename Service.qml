@@ -26,7 +26,9 @@ Item {
 
   // ---- what the window shows ----------------------------------------------
   property bool shown: false
-  property string view: "manager"            // "manager" | "install" | "settings" | "setup"
+  property string view: "manager"            // "manager" | "install" | "settings"
+  // The settings window floats over the manager rather than replacing it.
+  property bool setupOpen: false
   property var targetScreen: null
 
   // The window is only mapped once what it shows has loaded, so it never flashes
@@ -35,7 +37,6 @@ Item {
   property bool slow: false
   readonly property bool ready: root.slow || (root.view === "manager" ? root.listLoaded
     : root.view === "install" ? (root.installState !== "loading" && root.locationsReady)
-    : root.view === "setup" ? root.integLoaded
     : (root.settingsState !== "loading" && root.locationsReady))
   onShownChanged: {
     root.slow = false
@@ -101,6 +102,7 @@ Item {
   }
 
   function showManager() {
+    root.setupOpen = false
     root.view = "manager"
     root.targetScreen = root.focusedScreen()
     root.shown = true
@@ -127,6 +129,7 @@ Item {
     root.installLog = ""
     root.installedId = ""
     root.installState = "loading"
+    root.setupOpen = false
     root.view = "install"
     root.targetScreen = root.focusedScreen()
     root.shown = true
@@ -134,25 +137,40 @@ Item {
     infoProc.running = true
   }
 
-  function close() { root.shown = false }
+  function close() { root.setupOpen = false; root.shown = false }
+  function closeSetup() { root.setupOpen = false; Qt.callLater(function () { managerView.focusSearch() }) }
 
   function showSetup() {
     root.integLoaded = false
-    root.view = "setup"
-    root.targetScreen = root.focusedScreen()
-    root.shown = true
+    // The manager stays behind it: opened first when it was not already showing.
+    if (!root.shown || root.view !== "manager") {
+      root.view = "manager"
+      root.targetScreen = root.focusedScreen()
+      root.shown = true
+      root.refresh()
+    }
+    root.setupOpen = true
     integProc.running = true
   }
 
   function skipSetup() {
     skipProc.running = true
-    root.close()
+    root.closeSetup()
   }
 
-  function applySetup(launcher, handler, cli) {
+  // Setup changes go one at a time, in the order they were made; the settings window
+  // stays open, and reads the real state back once the last one is done.
+  property var setupQueue: []
+  function applySetting(args) {
+    root.setupQueue = root.setupQueue.concat([args])
+    root.runNextSetup()
+  }
+  function runNextSetup() {
     if (setupProc.running) return
+    if (root.setupQueue.length === 0) { root.setupBusy = false; integProc.running = true; return }
     root.setupBusy = true
-    setupProc.command = [root.cli, "setup", "--launcher", String(launcher), "--handler", String(handler), "--cli", String(cli)]
+    setupProc.command = [root.cli, "setup"].concat(root.setupQueue[0])
+    root.setupQueue = root.setupQueue.slice(1)
     setupProc.running = true
   }
 
@@ -161,6 +179,7 @@ Item {
     root.cfg = ({})
     root.settingsError = ""
     root.settingsState = "loading"
+    root.setupOpen = false
     root.view = "settings"
     locProc.running = true
     cfgProc.command = [root.cli, "config", app.id]
@@ -168,6 +187,18 @@ Item {
   }
 
   function closeSettings() { root.view = "manager" }
+
+  // ---- update source preview: what a pasted link points at ------------------------
+  property var resolved: ({})                 // result of `resolve` for resolveAsked
+  property string resolveAsked: ""            // the input `resolved` answers
+  property string resolveWanted: ""           // the latest input the UI asked about
+  readonly property bool resolving: resolveWanted !== "" && resolveWanted !== resolveAsked
+
+  function resolveSource(input) {
+    root.resolveWanted = input.trim()
+    if (root.resolveWanted === "") { root.resolved = ({}); root.resolveAsked = ""; return }
+    if (!resolveProc.running) resolveProc.start()
+  }
 
   function saveSettings(args) {
     root.settingsError = ""
@@ -288,11 +319,13 @@ Item {
     id: setupProc
     property string last: ""
     stderr: SplitParser { onRead: line => setupProc.last = line.replace(/^startappimage: /, "") }
-    onStarted: setupProc.last = ""
-    onExited: code => {
-      root.setupBusy = false
-      root.close()
-      root.say(code === 0 ? "Setup saved" : (setupProc.last !== "" ? setupProc.last : "Setup could not be saved"), code !== 0)
+    onStarted: { setupProc.last = ""; console.log("startappimage setup:", JSON.stringify(setupProc.command)) }
+    onExited: (code, status) => {
+      console.log("startappimage setup exited", code, status, setupProc.last)
+      // A change that failed is said as a notification; reading the state back flips its switch back.
+      if (code !== 0) Quickshell.execDetached(["notify-send", "-a", "StartAppImage", "-u", "critical", "Setting was not applied",
+        setupProc.last !== "" ? setupProc.last : "exit code " + code])
+      root.runNextSetup()
     }
   }
 
@@ -337,6 +370,42 @@ Item {
         }
       }
     }
+  }
+
+  // The size and place the manager was last left at.
+  Process {
+    running: true
+    command: [root.cli, "window"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        try {
+          var w = JSON.parse(text)
+          win.sizeW = w.w > 0 ? w.w : 0
+          win.sizeH = w.h > 0 ? w.h : 0
+          win.dragX = w.x
+          win.dragY = w.y
+          win.sSizeW = w.setup.w > 0 ? w.setup.w : 0
+          win.sSizeH = w.setup.h > 0 ? w.setup.h : 0
+          win.sDragX = w.setup.x
+          win.sDragY = w.setup.y
+        } catch (e) {}
+      }
+    }
+  }
+
+  Process {
+    id: resolveProc
+    property string asked: ""
+    function start() { asked = root.resolveWanted; command = [root.cli, "resolve", asked]; running = true }
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var r = ({})
+        try { r = JSON.parse(text) } catch (e) { r = ({ ok: false, kind: "network", error: "Could not check this source" }) }
+        if (resolveProc.asked === root.resolveWanted) { root.resolved = r; root.resolveAsked = resolveProc.asked }
+      }
+    }
+    // The field changed while this ran: ask again with the newest text.
+    onExited: if (root.resolveWanted !== "" && root.resolveWanted !== resolveProc.asked) resolveProc.start()
   }
 
   Process {
@@ -426,15 +495,33 @@ Item {
     fresh.forEach(function (id) { next[id] = root.updates[id] })
     root.notified = next
     if (root.shown) return
-    Quickshell.execDetached(["notify-send", "-a", "StartAppImage", "-i", "startappimage",
+    notifyProc.command = ["notify-send", "-a", "StartAppImage", "-i", "startappimage",
+      "-A", "update=Update", "-A", "open=Open manager",
       fresh.length === 1 ? "Update available" : fresh.length + " updates available",
-      fresh.join(", ") + " - open StartAppImage to update"])
+      fresh.map(function (id) { return id + " " + root.updates[id] }).join(", ")]
+    notifyProc.running = true
   }
 
-  Timer { interval: 20000; running: true; onTriggered: root.check() }
+  // notify-send -A prints the chosen action when the popup is clicked, then exits.
+  Process {
+    id: notifyProc
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var choice = text.trim()
+        if (choice === "update") root.updateAll()
+        else if (choice === "open") root.showManager()
+      }
+    }
+  }
+
+  Timer { interval: 20000; running: root.checkHours > 0; onTriggered: root.check() }
   // Once the shell has settled, offer setup if it has never been answered.
   Timer { interval: 4000; running: true; onTriggered: { root.offerSetup = true; integProc.running = true } }
-  Timer { interval: 6 * 60 * 60 * 1000; running: true; repeat: true; onTriggered: root.check() }
+  // Hours between background checks; 0 turns them off. Set on the setup card.
+  readonly property bool rememberSize: root.integ.rememberSize !== false
+  readonly property bool rememberPosition: root.integ.rememberPosition !== false
+  readonly property int checkHours: root.integ.checkHours !== undefined ? root.integ.checkHours : 6
+  Timer { interval: Math.max(1, root.checkHours) * 60 * 60 * 1000; running: root.checkHours > 0; repeat: true; onTriggered: root.check() }
   Timer { id: noticeTimer; interval: 6000; onTriggered: root.notice = "" }
 
   // ---- the window ------------------------------------------------------------------------
@@ -452,11 +539,92 @@ Item {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
+    // The card opens centred; dragging its top strip moves it. The offsets are from
+    // the centre, so the card stays where it was put when its size changes between views.
+    property real dragX: 0
+    property real dragY: 0
+    // Where the card was last left is remembered across restarts (see `startappimage window`);
+    // opening it again puts it back, kept on the screen in case the screen has changed.
+    // (The window has no size until it is shown, so the check waits for one.)
+    onHeightChanged: if (visible) { win.moveBy(0, 0); win.moveSetupBy(0, 0) }
+    onVisibleChanged: if (visible) {
+      if (!root.rememberPosition) { win.dragX = 0; win.dragY = 0; win.sDragX = 0; win.sDragY = 0 }
+      if (!root.rememberSize) { win.sizeW = 0; win.sizeH = 0; win.sSizeW = 0; win.sSizeH = 0 }
+    }
+
+    // The settings window moves and resizes the same way, with its own offsets and size.
+    property real sDragX: 0
+    property real sDragY: 0
+    property real sSizeW: 0
+    property real sSizeH: 0
+    function saveSetupWindow(withSize) {
+      var args = [root.cli, "window"]
+      if (root.rememberPosition) args.push("--setup-offset", Math.round(win.sDragX) + "," + Math.round(win.sDragY))
+      if (withSize && root.rememberSize && win.sSizeW > 0) args.push("--setup-size", Math.round(win.sSizeW) + "x" + Math.round(win.sSizeH))
+      if (args.length > 2) Quickshell.execDetached(args)
+    }
+    function resetSetupWindow() {
+      win.sSizeW = 0; win.sSizeH = 0; win.sDragX = 0; win.sDragY = 0
+      Quickshell.execDetached([root.cli, "window", "--reset-setup"])
+    }
+    function resizeSetupBy(dx, dy) {
+      var w = Math.max(Style.space(560), Math.min(win.width - Style.space(40), setupFrame.width + dx))
+      var h = Math.max(Style.space(360), Math.min(win.height - Style.space(40), setupFrame.height + dy))
+      win.sDragX += (w - setupFrame.width) / 2
+      win.sDragY += (h - setupFrame.height) / 2
+      win.sSizeW = w
+      win.sSizeH = h
+    }
+    function moveSetupBy(dx, dy) {
+      if (win.width <= 0 || win.height <= 0) return
+      var grab = Style.space(60)
+      var maxX = (win.width + setupFrame.width) / 2 - grab
+      var minY = -(win.height - setupFrame.height) / 2
+      var maxY = (win.height + setupFrame.height) / 2 - grab
+      win.sDragX = Math.max(-maxX, Math.min(maxX, win.sDragX + dx))
+      win.sDragY = Math.max(minY, Math.min(maxY, win.sDragY + dy))
+    }
+
+    function saveWindow(withSize) {
+      var args = [root.cli, "window"]
+      if (root.rememberPosition) args.push("--offset", Math.round(win.dragX) + "," + Math.round(win.dragY))
+      if (withSize && root.rememberSize && win.sizeW > 0) args.push("--size", Math.round(win.sizeW) + "x" + Math.round(win.sizeH))
+      if (args.length > 2) Quickshell.execDetached(args)
+    }
+    function resetWindow() {
+      win.sizeW = 0; win.sizeH = 0; win.dragX = 0; win.dragY = 0
+      Quickshell.execDetached([root.cli, "window", "--reset"])
+    }
+    // The manager can be resized from its bottom-right corner. 0 means the default size;
+    // a chosen size is kept until the shell restarts.
+    property real sizeW: 0
+    property real sizeH: 0
+    // The top-left corner stays put: the card is centred plus an offset, so a change of
+    // size moves the centre by half of it.
+    function resizeBy(dx, dy) {
+      var w = Math.max(Style.space(480), Math.min(win.width - Style.space(40), frame.width + dx))
+      var h = Math.max(Style.space(300), Math.min(win.height - Style.space(40), frame.height + dy))
+      win.dragX += (w - frame.width) / 2
+      win.dragY += (h - frame.height) / 2
+      win.sizeW = w
+      win.sizeH = h
+    }
+    // Keeps the card on the screen: at least the top strip stays reachable.
+    function moveBy(dx, dy) {
+      if (win.width <= 0 || win.height <= 0) return
+      var grab = Style.space(60)
+      var maxX = (win.width + frame.width) / 2 - grab
+      var minY = -(win.height - frame.height) / 2
+      var maxY = (win.height + frame.height) / 2 - grab
+      win.dragX = Math.max(-maxX, Math.min(maxX, win.dragX + dx))
+      win.dragY = Math.max(minY, Math.min(maxY, win.dragY + dy))
+    }
+
     // Click outside the card to dismiss it.
     Rectangle {
       anchors.fill: parent
       color: Color.menu.scrim
-      MouseArea { anchors.fill: parent; onClicked: root.close() }
+      MouseArea { anchors.fill: parent; onClicked: { if (root.setupOpen) root.closeSetup(); else root.close() } }
     }
 
     RectangularShadow {
@@ -470,10 +638,12 @@ Item {
     Rectangle {
       id: frame
       anchors.centerIn: parent
-      width: root.view === "manager" ? Style.space(640) : Style.space(520)
+      anchors.horizontalCenterOffset: win.dragX
+      anchors.verticalCenterOffset: win.dragY
+      width: root.view === "manager" ? (win.sizeW > 0 ? win.sizeW : Style.space(640)) : Style.space(520)
       height: root.view === "install" ? installView.implicitHeight
-        : root.view === "setup" ? setupView.implicitHeight
         : root.view === "settings" ? settingsView.implicitHeight
+        : win.sizeH > 0 ? win.sizeH
         : Math.max(Style.space(300), Math.min(managerView.implicitHeight, Style.space(580), (win.screen ? win.screen.height : 900) - Style.space(80)))
       radius: root.radius
       color: Color.menu.background
@@ -484,6 +654,24 @@ Item {
 
       // Swallow clicks so they do not reach the dismiss area behind the card.
       MouseArea { anchors.fill: parent }
+
+      // Drag the top strip to move the card. The card moves with the pointer, so the
+      // pointer's place on it stays put and each move is the distance from the press.
+      // Declared before the views so their own buttons and fields sit above it.
+      MouseArea {
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: Style.space(60)
+        cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+        property real pressX: 0
+        property real pressY: 0
+        onPressed: function (mouse) { pressX = mouse.x; pressY = mouse.y }
+        onPositionChanged: function (mouse) {
+          if (pressed) win.moveBy(mouse.x - pressX, mouse.y - pressY)
+        }
+        onReleased: win.saveWindow(false)
+      }
 
       ManagerView {
         id: managerView
@@ -508,12 +696,36 @@ Item {
         visible: root.view === "settings"
       }
 
-      SetupView {
-        id: setupView
-        anchors.left: parent.left
+      // Resize handle in the manager's bottom-right corner: a small grip and a resize pointer.
+      MouseArea {
+        visible: root.view === "manager"
         anchors.right: parent.right
-        svc: root
-        visible: root.view === "setup"
+        anchors.bottom: parent.bottom
+        width: Style.space(22)
+        height: Style.space(22)
+        z: 10
+        cursorShape: Qt.SizeFDiagCursor
+        property real pressX: 0
+        property real pressY: 0
+        onPressed: function (mouse) { pressX = mouse.x; pressY = mouse.y }
+        onPositionChanged: function (mouse) {
+          if (pressed) win.resizeBy(mouse.x - pressX, mouse.y - pressY)
+        }
+        onReleased: win.saveWindow(true)
+        onDoubleClicked: win.resetWindow()
+        Repeater {
+          model: [0, 1]
+          Rectangle {
+            width: Style.space(10) - index * Style.space(5)
+            height: Math.max(1, Style.normalBorderWidth)
+            radius: height / 2
+            color: Util.alpha(Color.foreground, 0.30)
+            rotation: -45
+            x: parent.width - Style.space(14) + index * Style.space(5)
+            y: parent.height - Style.space(9) - index * Style.space(5) + Style.space(1)
+            transformOrigin: Item.Center
+          }
+        }
       }
 
       // Close button in the card's top-right corner, on every view.
@@ -538,6 +750,110 @@ Item {
           if (/\.appimage$/i.test(path)) root.showInstall(path)
           else root.say("Only .AppImage files can be installed", true)
         }
+      }
+    }
+
+    // ---- the settings window, over the manager ------------------------------------------
+    // The manager stays where it is, dimmed; closing the settings brings it back.
+    Rectangle {
+      visible: root.setupOpen && root.integLoaded
+      anchors.fill: frame
+      radius: frame.radius
+      color: Qt.rgba(0, 0, 0, 0.35)
+      MouseArea { anchors.fill: parent; onClicked: root.closeSetup() }
+    }
+
+    RectangularShadow {
+      visible: setupFrame.visible
+      anchors.fill: setupFrame
+      radius: setupFrame.radius
+      blur: root.shadow
+      offset.y: Style.space(4)
+      color: Qt.rgba(0, 0, 0, 0.6)
+    }
+
+    Rectangle {
+      id: setupFrame
+      visible: root.setupOpen && root.integLoaded
+      anchors.centerIn: parent
+      anchors.horizontalCenterOffset: win.sDragX
+      anchors.verticalCenterOffset: win.sDragY
+      width: win.sSizeW > 0 ? win.sSizeW : Style.space(760)
+      height: win.sSizeH > 0 ? win.sSizeH : Math.min(setupView.implicitHeight, (win.screen ? win.screen.height : 900) - Style.space(80))
+      radius: root.radius
+      color: Color.menu.background
+      border.width: Style.normalBorderWidth
+      border.color: Util.alpha(Color.foreground, 0.14)
+      focus: true
+      Keys.onEscapePressed: root.closeSetup()
+      onVisibleChanged: if (visible) setupFrame.forceActiveFocus()
+
+      // Swallow clicks so they do not reach the dismiss area behind the card.
+      MouseArea { anchors.fill: parent }
+
+      // Drag the top strip to move the window; declared before the content so its own
+      // search box and buttons sit above it.
+      MouseArea {
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: Style.space(60)
+        cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+        property real pressX: 0
+        property real pressY: 0
+        onPressed: function (mouse) { pressX = mouse.x; pressY = mouse.y }
+        onPositionChanged: function (mouse) {
+          if (pressed) win.moveSetupBy(mouse.x - pressX, mouse.y - pressY)
+        }
+        onReleased: win.saveSetupWindow(false)
+      }
+
+      SetupView {
+        id: setupView
+        anchors.fill: parent
+        svc: root
+      }
+
+      // Resize handle in the bottom-right corner, as on the manager.
+      MouseArea {
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        width: Style.space(22)
+        height: Style.space(22)
+        z: 10
+        cursorShape: Qt.SizeFDiagCursor
+        property real pressX: 0
+        property real pressY: 0
+        onPressed: function (mouse) { pressX = mouse.x; pressY = mouse.y }
+        onPositionChanged: function (mouse) {
+          if (pressed) win.resizeSetupBy(mouse.x - pressX, mouse.y - pressY)
+        }
+        onReleased: win.saveSetupWindow(true)
+        onDoubleClicked: win.resetSetupWindow()
+        Repeater {
+          model: [0, 1]
+          Rectangle {
+            width: Style.space(10) - index * Style.space(5)
+            height: Math.max(1, Style.normalBorderWidth)
+            radius: height / 2
+            color: Util.alpha(Color.foreground, 0.30)
+            rotation: -45
+            x: parent.width - Style.space(14) + index * Style.space(5)
+            y: parent.height - Style.space(9) - index * Style.space(5) + Style.space(1)
+            transformOrigin: Item.Center
+          }
+        }
+      }
+
+      Button {
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: Style.spacing.lg
+        anchors.rightMargin: Style.spacing.lg
+        z: 10
+        iconText: "\uF00D"
+        tooltipText: "Close"
+        onClicked: root.closeSetup()
       }
     }
   }

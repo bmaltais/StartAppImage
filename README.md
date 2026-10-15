@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="StartAppImage's manager listing four AppImages, with search, per-app settings and uninstall" src="screenshots/manager.png" width="620" />
+  <img alt="StartAppImage's manager listing installed AppImages, with search, per-app settings and uninstall" src="screenshots/manager.png" width="620" />
 </p>
 
 <h1 align="center">StartAppImage</h1>
@@ -26,23 +26,25 @@
 omarchy plugin add https://github.com/bmaltais/StartAppImage.git --enable
 ```
 
-That is all. A few seconds after the shell loads, a **setup card** offers three things, each on its own switch:
+That is all. A few seconds after the shell loads, the **settings window** opens once and offers to switch on the three things that make StartAppImage feel built in. **Enable recommended** turns them all on; **Not now** leaves everything as it was.
 
-| Choice | What it does | Default |
+| Setting | What it does | Recommended |
 |---|---|---|
 | **App launcher entry** | Adds **StartAppImage** to your app launcher (SUPER + space) with its icon | On |
-| **Open `.AppImage` files** | Makes StartAppImage the program that opens them, so a double-click shows the install card | On, replacing any app that opens them today (it is remembered, see below) |
+| **Open `.AppImage` files with** | Makes StartAppImage the program that opens them, so a double-click shows the install card | StartAppImage, replacing any app that opens them today (it is remembered, see below) |
 | **Command line** | Links `~/.local/bin/startappimage` so you can use it in a terminal | On, unless that path is taken |
 
-Nothing changes until you press **Apply**, and **Not now** leaves everything as it was. The card appears once.
+Every change in the settings window **applies the moment you make it**, as in StartBar; there is no Apply button.
 
-- **Another app already opens AppImages?** The card names it ("Today these files open with *X*"). StartAppImage takes over by default and remembers *X*; switch the choice off later, from the card or with `setup --handler false`, and *X* gets the files back. Pick **Keep X** on the card to leave it in charge from the start.
-- **Something else at `~/.local/bin/startappimage`?** It is left alone and the card says so.
-- **Change your mind.** The gear button in the manager (or `omarchy-shell io.github.bmaltais.startappimage setup`) reopens the card with what is on right now.
+- **Another app already opens AppImages?** The window names it ("Today these files open with *X*"). StartAppImage takes over and remembers *X*; switch the setting back later, from the window or with `setup --handler false`, and *X* gets the files back. Pick **Keep X** to leave it in charge from the start.
+- **Something else at `~/.local/bin/startappimage`?** It is left alone and the window says so.
+- **Change your mind.** The gear button in the manager (or `omarchy-shell io.github.bmaltais.startappimage setup`) opens the settings window over the manager with what is on right now.
+
+<img src="screenshots/settings-window.png" alt="The settings window floating over the manager: pages on the left (General, Bar, Updates, Window), the settings of the chosen page on the right, and a footer with Reset to defaults" width="620">
 
 Only your home folder is touched. Everything the plugin needs (`bash`, `curl`, `jq`, `notify-send`) comes with Omarchy.
 
-Prefer the terminal? `startappimage setup --launcher true --handler true --cli true` does the same, and `startappimage integration` prints the current state as JSON. `register` and `unregister` still work.
+Prefer the terminal? `startappimage setup --launcher true --handler true --cli true` does the same for those three, and `startappimage integration` prints the current state as JSON. `register` and `unregister` still work.
 
 ## Tour
 
@@ -64,9 +66,11 @@ Open **StartAppImage** from the app launcher, or bind a key to it (see [Commands
 
 - **One row per app.** Its icon, name, version and where it came from, with a dot that turns to your accent colour when an update is waiting.
 - **Open, settings, uninstall.** Three buttons on every row. Uninstall asks first. A click anywhere on a row highlights it.
-- **Updates.** Apps installed from a GitHub release are checked every six hours, with a notification when something new is out. **Update** and **Update all** appear when there is something to update.
-- **Add from anywhere.** **Add AppImage…** takes a file path, a download URL or `github:owner/repo`.
+- **Updates.** Apps installed from a GitHub release are checked every six hours by default (change it, or turn it off, in the settings window or with `setup --check-hours N`). A system popup with **Update** and **Open manager** buttons appears when something new is out. **Update** and **Update all** appear when there is something to update.
+- **Install from anywhere.** **Install AppImage…** takes a file path, a download URL or `github:owner/repo` or a github.com/owner/repo(/releases) link.
 - **Apps installed by something else.** Any launcher entry that starts an `.AppImage` is adopted and tagged `EXTERNAL`, so apps put there by another launcher are listed too. You can open, configure and uninstall them like the rest. Uninstalling an external app deletes its file, so the confirmation asks "Delete the app?". StartAppImage does not update them unless you give them an update source.
+- **Bar icon (optional).** Switch on "Bar icon" in the settings window (or `setup --bar-icon true`) for an icon on the Omarchy bar that opens the manager and lights up when an update is waiting.
+- **Move and resize.** Drag the top strip to move the window and the bottom-right corner to resize it. It reopens where you left it; double-click the corner to go back to the default. Remembering size and position are two switches under **Window** in the settings window (`setup --remember-size false`, `--remember-position false`).
 - **Search and keyboard.** Type to search. `Up` and `Down` move, `Enter` opens, `Ctrl+U` updates, `Delete` uninstalls and `Esc` clears the search, then closes.
 
 ### Per-app settings
@@ -74,6 +78,8 @@ Open **StartAppImage** from the app launcher, or bind a key to it (see [Commands
 <img src="screenshots/settings.png" alt="The settings card for PdfCraft: name, location, launch options, update source and launcher visibility" width="520">
 
 The cog on a row opens that app's settings. Only what you change is applied.
+
+**Source** sits right under the name. Paste any GitHub link (a repo, a `/releases` page, `github:owner/repo` or plain `owner/repo`) and it checks the link as you type: it shows the latest version and the AppImage it would pick for your CPU, or says what is wrong. `startappimage resolve <link>` prints the same as JSON.
 
 ### Colours
 
@@ -111,7 +117,7 @@ The command line works on its own too:
 | `startappimage list [--json]` | Lists installed apps |
 | `startappimage check [--json]`, `update [APP]` | Looks for updates, installs them |
 | `startappimage config APP`, `set APP …` | Reads or changes an app's settings (`--name`, `--dir`, `--args`, `--source`, `--hidden`) |
-| `startappimage setup [--launcher B] [--handler B] [--cli B]`, `integration` | Switches the launcher entry, file handler and command-line link on or off (`B` is `true` or `false`), or prints which are on |
+| `startappimage setup [--launcher B] [--handler B] [--cli B] [--bar-icon B] [--check-hours N] [--remember-size B] [--remember-position B]`, `integration` | Applies those settings (`B` is `true` or `false`, `N` is hours, 0 = never), or prints what is on |
 | `startappimage remove APP` | Uninstalls an app and everything that was created for it |
 | `startappimage run FILE\|APP` | Runs a file, or an installed app by name |
 | `startappimage info FILE`, `locations` | Prints an AppImage's details, or the known install folders, as JSON |
