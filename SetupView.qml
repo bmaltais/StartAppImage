@@ -137,7 +137,7 @@ Item {
         anchors.left: parent.left
         anchors.leftMargin: Style.spacing.xxxl
         anchors.verticalCenter: parent.verticalCenter
-        text: ""
+        text: "\uF002"
         color: Color.muted
         font.family: Style.font.family
         font.pixelSize: Style.font.body
