@@ -401,13 +401,24 @@ Item {
     width: Style.spacing.md
   }
 
-  // ---- footer ----------------------------------------------------------------------------
+  // ---- footer: what to know on the left, the one thing you might do on the right ------------
   Item {
     id: footer
     anchors.bottom: parent.bottom
     anchors.left: parent.left
     anchors.right: parent.right
     height: Style.space(52)
+
+    // Sets the footer apart from the settings above it.
+    Rectangle {
+      anchors.top: parent.top
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.leftMargin: Style.spacing.lg
+      anchors.rightMargin: Style.spacing.lg
+      height: 1
+      color: Util.alpha(view.hairline, 0.5)
+    }
 
     Text {
       anchors.left: parent.left
@@ -416,7 +427,7 @@ Item {
       anchors.rightMargin: Style.spacing.lg
       anchors.verticalCenter: parent.verticalCenter
       elide: Text.ElideRight
-      text: view.integ.done ? "Changes apply instantly" : "Choose what to switch on. Changes apply instantly."
+      text: (view.integ.done ? "Changes apply instantly" : "Choose what to switch on. Changes apply instantly.") + "   \u00b7   Esc to close"
       color: Util.alpha(Color.foreground, 0.55)
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
@@ -428,36 +439,60 @@ Item {
       // Leaves room for the resize grip in the corner.
       anchors.rightMargin: Style.space(30)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.spacing.lg
+      spacing: Style.spacing.md
       // A first run offers the recommended set in one click, or to leave it for later.
-      Button {
+      Pill {
         visible: !view.integ.done
         text: "Not now"
-        bordered: true
         onClicked: view.svc.skipSetup()
       }
-      Button {
+      Pill {
         visible: !view.integ.done
         text: "Enable recommended"
-        selected: true
+        primary: true
         onClicked: view.applyDefaults()
       }
-      Button {
+      // Afterwards, the one quiet way back: the same pill StartBar uses for it.
+      Pill {
         visible: !!view.integ.done
         text: view.confirmingReset ? "Click again to reset everything" : "Reset to defaults"
-        bordered: true
+        danger: view.confirmingReset
         onClicked: {
           if (view.confirmingReset) { view.confirmingReset = false; resetTimer.stop(); view.applyDefaults() }
           else { view.confirmingReset = true; resetTimer.restart() }
         }
       }
-      Text {
-        anchors.verticalCenter: parent.verticalCenter
-        text: "Esc to close"
-        color: Color.muted
-        font.family: Style.font.family
-        font.pixelSize: Style.font.bodySmall
-      }
+    }
+  }
+
+  // A footer button: a soft pill; accent-filled for the one action to take, red while a
+  // destructive one waits for its second click.
+  component Pill: Rectangle {
+    id: pill
+    property string text: ""
+    property bool primary: false
+    property bool danger: false
+    signal clicked()
+    width: pillLabel.implicitWidth + Style.spacing.lg * 2
+    height: Style.space(32)
+    radius: view.rowRadius
+    color: pill.danger ? Util.alpha(Color.urgent, 0.5)
+      : pill.primary ? Color.accent
+      : (pillHover.hovered ? Style.hoverFillFor(Color.foreground, Color.accent) : Util.alpha(Color.foreground, 0.08))
+    Text {
+      id: pillLabel
+      anchors.centerIn: parent
+      text: pill.text
+      color: pill.primary ? Color.menu.background : Color.foreground
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+      font.bold: pill.primary
+    }
+    HoverHandler { id: pillHover }
+    MouseArea {
+      anchors.fill: parent
+      cursorShape: Qt.PointingHandCursor
+      onClicked: pill.clicked()
     }
   }
 
