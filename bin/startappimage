@@ -35,6 +35,9 @@ die() {
   fi
   exit 1
 }
+# A folder the user typed: "~" expanded, no trailing slash. Installs and moves stay inside the home directory.
+expand_dir() { local p=${1/#\~/$HOME}; printf '%s' "${p%/}"; }
+inside_home() { [[ $1 == "$HOME"/* ]]; }
 # Progress for a person: stdout, or stderr when stdout is reserved for the JSON result.
 say() { if [[ $JSON_RESULT == 1 ]]; then echo "$*" >&2; else echo "$*"; fi; }
 need() { command -v "$1" >/dev/null || die "missing dependency: $1"; }
@@ -53,6 +56,7 @@ Usage: startappimage <command> [args]
   setup [--launcher B] [--handler B] [--cli B] [--check-hours N]
         [--remember-size B] [--remember-position B] [--bar-icon B]
                                             Desktop integration and how often updates are checked (0 = never)
+  folder <path>                             JSON: is this folder allowed (inside your home), and its full path
   window [--size WxH] [--offset X,Y] [--reset] [--setup-size WxH] [--setup-offset X,Y] [--reset-setup]
                                             The manager and settings window's remembered size and place (no option prints them)
   resolve <link|owner/repo>                 JSON: what an update source points at (repo, tag, asset)
@@ -302,8 +306,8 @@ cmd_add() {
   done
   set -- ${args[@]+"${args[@]}"}
   [[ $# -ge 1 ]] || die "add: missing source"
-  dest=${dest/#\~/$HOME}; dest=${dest%/}
-  [[ "$dest" == "$HOME"/* ]] || DIE_FIELD=dir die "the install folder must be inside your home directory: $dest"
+  dest=$(expand_dir "$dest")
+  inside_home "$dest" || DIE_FIELD=dir die "the install folder must be inside your home directory: $dest"
   need curl
   local src="$1" name="${2:-}" explicit="${2:-}" tmp file version="local" source_rec="local"
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
@@ -437,8 +441,8 @@ cmd_set() {
   [[ -f "$desk" ]] || die "launcher entry not found: $desk"
 
   if [[ -n "$new_dir" ]]; then
-    new_dir=${new_dir/#\~/$HOME}; new_dir=${new_dir%/}
-    [[ "$new_dir" == "$HOME"/* ]] || DIE_FIELD=dir die "the folder must be inside your home directory: $new_dir"
+    new_dir=$(expand_dir "$new_dir")
+    inside_home "$new_dir" || DIE_FIELD=dir die "the folder must be inside your home directory: $new_dir"
     if [[ "$new_dir" != "$(dirname "$exe")" ]]; then
       local target
       if rec_external "$id"; then target="$new_dir/$(basename "$exe")"; else target="$new_dir/$id.AppImage"; fi
@@ -473,6 +477,14 @@ cmd_set() {
   esac
   refresh_desktop_db
   if [[ $JSON_RESULT == 1 ]]; then jq -nc --arg id "$id" '{ok:true, id:$id}'; else echo "Saved $id"; fi
+}
+
+# folder <path>: JSON {ok, path, error} for the folder field; the same rule add and set apply.
+cmd_folder() {
+  need jq
+  local p; p=$(expand_dir "${1:-}")
+  if inside_home "$p"; then jq -nc --arg path "$p" '{ok:true, path:$path, error:""}'
+  else jq -nc --arg path "$p" '{ok:false, path:$path, error:"The folder must be inside your home directory."}'; fi
 }
 
 # --- locations -------------------------------------------------------------------
@@ -564,11 +576,15 @@ cmd_update() {
 
 # --- remove --------------------------------------------------------------------
 cmd_remove() {
+  wants_json "$@"
+  local a args=()
+  for a in "$@"; do [[ $a == --json ]] || args+=("$a"); done
+  set -- ${args[@]+"${args[@]}"}
   [[ $# -eq 1 ]] || die "remove: missing name"
   local id; id=$(slug "$1")
   rec_exists "$id" || die "not installed: $id"
   rec_delete "$id"
-  echo "Removed $id"
+  if [[ $JSON_RESULT == 1 ]]; then jq -nc --arg id "$id" '{ok:true, id:$id}'; else echo "Removed $id"; fi
 }
 
 # --- open / register -----------------------------------------------------------
@@ -677,11 +693,15 @@ cli_state() {
 cli_on() {
   case $(cli_state) in
     ours) return 0 ;;
-    other) echo "startappimage: $(short_home "$CLI_LINK") already exists and is not StartAppImage, so it was left alone" >&2; return 1 ;;
+    other) setup_fail cli "$(short_home "$CLI_LINK") already exists and is not StartAppImage, so it was left alone"; return 1 ;;
   esac
   mkdir -p "$BIN_DIR"
   ln -s "$SELF" "$CLI_LINK"
 }
+
+# The first piece of setup that failed: its name and why. Printed for a person, or as the JSON result with --json.
+SETUP_FIELD="" SETUP_ERROR=""
+setup_fail() { if [[ -z $SETUP_ERROR ]]; then SETUP_FIELD=$1 SETUP_ERROR=$2; fi; if [[ $JSON_RESULT != 1 ]]; then echo "startappimage: $2" >&2; fi; }
 
 cli_off() { [[ $(cli_state) != ours ]] || rm -f "$CLI_LINK"; }
 
@@ -689,6 +709,10 @@ short_home() { local p=$1; [[ $p == "$HOME"/* ]] && p="~${p#"$HOME"}"; printf '%
 
 # The recommended settings, in one place: what a first run offers, what Reset goes back to,
 # and what a setting reads as before anyone changed it. `integration` hands them to the UI as "defaults".
+DEFAULT_LAUNCHER=true
+DEFAULT_HANDLER=true
+DEFAULT_CLI=true
+DEFAULT_BAR_ICON=false
 DEFAULT_CHECK_HOURS=6
 DEFAULT_REMEMBER=true
 
@@ -711,17 +735,20 @@ cmd_integration() {
     --argjson baricon "$(bar_icon_state)" \
     --argjson rsize "$(cfg_bool REMEMBER_SIZE)" \
     --argjson rpos "$(cfg_bool REMEMBER_POSITION)" \
+    --argjson dlauncher "$DEFAULT_LAUNCHER" --argjson dhandler "$DEFAULT_HANDLER" --argjson dcli "$DEFAULT_CLI" --argjson dbar "$DEFAULT_BAR_ICON" \
     --argjson dhours "$DEFAULT_CHECK_HOURS" --argjson dremember "$DEFAULT_REMEMBER" \
     '{launcher:$launcher, handler:{ours:$ours, current:$handler, name:$handlerName}, cli:{state:$cli, path:$cliPath}, checkHours:$hours, barIcon:$baricon, rememberSize:$rsize, rememberPosition:$rpos, done:$finished,
-      defaults:{launcher:true, handler:true, cli:true, barIcon:false, checkHours:$dhours, rememberSize:$dremember, rememberPosition:$dremember}}'
+      defaults:{launcher:$dlauncher, handler:$dhandler, cli:$dcli, barIcon:$dbar, checkHours:$dhours, rememberSize:$dremember, rememberPosition:$dremember}}'
 }
 
 # setup [--launcher true|false] [--handler true|false] [--cli true|false] [--done]
 # Only what is named is touched. --done records that the setup card has been answered.
 cmd_setup() {
   local launcher="" handler="" cli="" hours="" rsize="" rpos="" baricon="" mark=0 failed=0
+  wants_json "$@"
   while (( $# )); do
     case $1 in
+      --json) shift ;;
       --launcher|--handler|--cli)
         [[ ${2:-} == true || ${2:-} == false ]] || die "setup: $1 takes true or false"
         case $1 in --launcher) launcher=$2 ;; --handler) handler=$2 ;; --cli) cli=$2 ;; esac
@@ -753,6 +780,10 @@ cmd_setup() {
   # Last: changing the bar makes the shell reload its config, which can restart the plugin
   # (and this process) part-way through.
   [[ -z $baricon ]] || bar_icon_set "$baricon" || failed=1
+  if [[ $JSON_RESULT == 1 ]]; then
+    if (( failed )); then jq -nc --arg field "$SETUP_FIELD" --arg error "$SETUP_ERROR" '{ok:false, field:$field, error:$error}'
+    else jq -nc '{ok:true}'; fi
+  fi
   return $failed
 }
 
@@ -772,7 +803,7 @@ bar_icon_state() { # true | false
   jq -e --arg id "$BAR_ID" '[.bar.layout[]?[]? | if type == "object" then .id else . end] | index($id) != null' "$f" >/dev/null 2>&1 && echo true || echo false
 }
 bar_icon_set() {
-  command -v omarchy-shell-config >/dev/null || { echo "startappimage: the Omarchy bar is not available here" >&2; return 1; }
+  command -v omarchy-shell-config >/dev/null || { setup_fail barIcon "the Omarchy bar is not available here"; return 1; }
   if is_true "$1"; then
     [[ $(bar_icon_state) == true ]] && return 0
     ( source omarchy-shell-config; commit "$NORMALIZE | .bar.layout.right += [{id: \$id}]" --arg id "$BAR_ID" )
@@ -803,6 +834,9 @@ cmd_window() {
   done
   local k v out=()
   for k in WIN_W WIN_H WIN_X WIN_Y SETUP_W SETUP_H SETUP_X SETUP_Y; do v=$(cfg_get "$k"); [[ $v =~ ^-?[0-9]+$ ]] || v=0; out+=("$v"); done
+  # While remembering is off nothing saved is reported, whatever an older config still holds.
+  if [[ $(cfg_bool REMEMBER_SIZE) == false ]]; then out[0]=0 out[1]=0 out[4]=0 out[5]=0; fi
+  if [[ $(cfg_bool REMEMBER_POSITION) == false ]]; then out[2]=0 out[3]=0 out[6]=0 out[7]=0; fi
   jq -n --argjson w "${out[0]}" --argjson h "${out[1]}" --argjson x "${out[2]}" --argjson y "${out[3]}" \
     --argjson sw "${out[4]}" --argjson sh "${out[5]}" --argjson sx "${out[6]}" --argjson sy "${out[7]}" \
     '{w:$w, h:$h, x:$x, y:$y, setup:{w:$sw, h:$sh, x:$sx, y:$sy}}'
@@ -815,6 +849,7 @@ case "${1:-help}" in
   locations) cmd_locations ;;
   resolve) shift; cmd_resolve "$@" ;;
   window) shift; cmd_window "$@" ;;
+  folder) shift; cmd_folder "$@" ;;
   config) shift; cmd_config "$@" ;;
   set) shift; cmd_set "$@" ;;
   run) shift; cmd_run "$@" ;;
