@@ -15,6 +15,7 @@ APP_DIR="${APP_DIR:-$LEGACY_APP_DIR}"
 DESKTOP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
 BIN_DIR="$HOME/.local/bin"
+SVG_ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
 DB_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/startappimage"
 PLUGIN_ID="io.github.bmaltais.startappimage"
 
@@ -57,7 +58,14 @@ EOF
 
 slug() { tr '[:upper:] ' '[:lower:]-' <<<"$1" | tr -cd 'a-z0-9._-'; }
 
-# --- manifest: simple KEY=value files, one per app -----------------------------
+# --- app record: everything that belongs to one installed app --------------------
+# One manifest ($DB_DIR/<id>.env, simple KEY=value lines), a launcher entry, an icon, a link in $BIN_DIR and the AppImage.
+# Commands go through rec_* and never spell these paths themselves, so the layout lives here and nowhere else.
+#   rec_exists ID / rec_external ID      is it installed / was it adopted rather than installed by us
+#   rec_launcher ID / rec_icon ID        its launcher entry / its icon file (printed if it exists)
+#   rec_install ID FILE ICON_SRC ...     put the AppImage, link and icon in place; prints the icon name for the launcher
+#   rec_delete ID                        remove the app and every file of it
+#   refresh_desktop_db                   tell the desktop its launcher entries changed
 db_get() { sed -n "s/^$2=//p" "$DB_DIR/$1.env" | head -n1; }
 db_write() { # id name source version [KEY=value ...]
   local id=$1 name=$2 source=$3 version=$4
@@ -67,6 +75,41 @@ db_write() { # id name source version [KEY=value ...]
     printf 'NAME=%s\nSOURCE=%s\nVERSION=%s\n' "$name" "$source" "$version"
     if (( $# )); then printf '%s\n' "$@"; fi
   } >"$DB_DIR/$id.env"
+}
+rec_exists() { [[ -f "$DB_DIR/$1.env" ]]; }
+rec_external() { [[ "$(db_get "$1" EXTERNAL)" == 1 ]]; }
+refresh_desktop_db() { if command -v update-desktop-database >/dev/null; then update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true; fi; }
+rec_launcher() { local d; d=$(db_get "$1" DESKTOP); echo "${d:-$DESKTOP_DIR/startappimage-$1.desktop}"; }
+rec_icon() { # the first icon file that exists: the adopted one, our png, our svg
+  local i
+  for i in "$(db_get "$1" ICON)" "$ICON_DIR/startappimage-$1.png" "$SVG_ICON_DIR/startappimage-$1.svg"; do
+    if [[ -f $i ]]; then echo "$i"; return 0; fi
+  done
+}
+rec_install_icon() { # id file -> the icon name for the launcher entry
+  local ext=${2##*.}
+  if [[ -f $2 ]]; then
+    if [[ $ext == svg ]]; then mkdir -p "$SVG_ICON_DIR"; cp "$2" "$SVG_ICON_DIR/startappimage-$1.svg"
+    else mkdir -p "$ICON_DIR"; cp "$2" "$ICON_DIR/startappimage-$1.png"; fi
+    echo "startappimage-$1"
+  else
+    echo "application-x-executable"
+  fi
+}
+rec_delete() {
+  local id=$1
+  if rec_external "$id"; then
+    local exe desk icon
+    exe=$(db_get "$id" EXEC); desk=$(db_get "$id" DESKTOP); icon=$(db_get "$id" ICON)
+    [[ "$exe" == "$HOME"/* && ${exe,,} == *.appimage ]] || die "refusing to remove $exe"
+    rm -f "$exe" "$DB_DIR/$id.env"
+    [[ "$desk" != "$DESKTOP_DIR"/*.desktop ]] || rm -f "$desk"
+    [[ "$icon" != "$HOME/.local/share/"* ]] || rm -f "$icon"
+  else
+    rm -f "$(app_exec "$id")" "$BIN_DIR/$id" "$(rec_launcher "$id")" \
+          "$ICON_DIR/startappimage-$id.png" "$SVG_ICON_DIR/startappimage-$id.svg" "$DB_DIR/$id.env"
+  fi
+  refresh_desktop_db
 }
 # Where an app's AppImage lives: adopted apps keep theirs where it was found.
 app_exec() { local e; e=$(db_get "$1" EXEC); echo "${e:-$LEGACY_APP_DIR/$1.AppImage}"; }
@@ -93,7 +136,7 @@ sync_external() {
   local f d id path name icon version known exe
   for f in "$DB_DIR"/*.env; do # forget adopted apps whose file is gone
     id=$(basename "$f" .env)
-    if [[ "$(db_get "$id" EXTERNAL)" == 1 ]]; then
+    if rec_external "$id"; then
       exe=$(db_get "$id" EXEC)
       [[ -f "$exe" ]] || rm -f "$f"
     fi
@@ -209,7 +252,7 @@ cmd_info() {
     mkdir -p "$cache"; icon="$cache/preview-$$.${M_ICON##*.}"; cp "$M_ICON" "$icon"
   fi
   sync_external
-  id=$(slug "$M_NAME"); [[ -f "$DB_DIR/$id.env" ]] && installed=true
+  id=$(slug "$M_NAME"); rec_exists "$id" && installed=true
   jq -nc --arg name "$M_NAME" --arg comment "$M_COMMENT" --arg cats "$M_CATS" --arg icon "$icon" \
     --arg version "$M_VERSION" --arg size "$(du -h "$1" | cut -f1)" --arg path "$(realpath "$1")" --arg id "$id" \
     --arg installedVersion "$([[ $installed == true ]] && db_get "$id" VERSION || true)" \
@@ -274,27 +317,17 @@ cmd_add() {
   [[ -n "$id" ]] || die "could not derive a name; pass one explicitly"
   echo "Installing to $dest..."
   # Installing again into a different folder moves the app: clear the old copy first.
-  if [[ -f "$DB_DIR/$id.env" && "$(app_exec "$id")" != "$dest/$id.AppImage" ]]; then
+  if rec_exists "$id" && [[ "$(app_exec "$id")" != "$dest/$id.AppImage" ]]; then
     cmd_remove "$id" >/dev/null
   fi
-  mkdir -p "$dest" "$DESKTOP_DIR" "$ICON_DIR" "$BIN_DIR"
+  mkdir -p "$dest" "$DESKTOP_DIR" "$BIN_DIR"
 
   mv "$file" "$dest/$id.AppImage"
   ln -sf "$dest/$id.AppImage" "$BIN_DIR/$id"
 
-  local icon_ref="application-x-executable"
-  if [[ -f "$icon_src" ]]; then
-    local ext=${icon_src##*.}; [[ $ext == svg ]] || ext=png
-    if [[ $ext == svg ]]; then
-      mkdir -p "$HOME/.local/share/icons/hicolor/scalable/apps"
-      cp "$icon_src" "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage-$id.svg"
-    else
-      cp "$icon_src" "$ICON_DIR/startappimage-$id.png"
-    fi
-    icon_ref="startappimage-$id"
-  fi
+  local icon_ref; icon_ref=$(rec_install_icon "$id" "$icon_src")
 
-  cat >"$DESKTOP_DIR/startappimage-$id.desktop" <<EOF
+  cat >"$(rec_launcher "$id")" <<EOF
 [Desktop Entry]
 Type=Application
 Name=$display
@@ -307,7 +340,7 @@ X-StartAppImage=$id
 EOF
   db_write "$id" "$display" "$source_rec" "$version" "EXEC=$dest/$id.AppImage"
   [[ $remember -eq 0 ]] || cfg_set INSTALL_DIR "$dest"
-  command -v update-desktop-database >/dev/null && update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  refresh_desktop_db
   echo "Installed $display ($id)"
 }
 
@@ -316,7 +349,6 @@ db_set() { # id KEY value: replace or add one line of an app's manifest
   local f="$DB_DIR/$1.env"
   { grep -v "^$2=" "$f" || true; echo "$2=$3"; } >"$f.tmp" && mv "$f.tmp" "$f"
 }
-desktop_of() { local d; d=$(db_get "$1" DESKTOP); echo "${d:-$DESKTOP_DIR/startappimage-$1.desktop}"; }
 
 desktop_set() { # file KEY value: replace the first KEY= line, or add it under [Desktop Entry]
   local f=$1
@@ -350,10 +382,10 @@ cmd_config() {
   [[ $# -eq 1 ]] || die "config: missing name"
   local id exe desk src hidden=false external=false
   id=$(slug "$1")
-  [[ -f "$DB_DIR/$id.env" ]] || die "not installed: $id"
-  exe=$(app_exec "$id"); desk=$(desktop_of "$id"); src=$(db_get "$id" SOURCE)
+  rec_exists "$id" || die "not installed: $id"
+  exe=$(app_exec "$id"); desk=$(rec_launcher "$id"); src=$(db_get "$id" SOURCE)
   [[ ! -f "$desk" ]] || { grep -q '^NoDisplay=true' "$desk" && hidden=true || true; }
-  [[ "$(db_get "$id" EXTERNAL)" != 1 ]] || external=true
+  rec_external "$id" && external=true
   jq -nc --arg id "$id" --arg name "$(db_get "$id" NAME)" --arg path "$exe" --arg dir "$(dirname "$exe")" \
     --arg args "$([[ -f "$desk" ]] && exec_args "$desk" || true)" --arg source "$src" --arg version "$(db_get "$id" VERSION)" \
     --argjson hidden "$hidden" --argjson external "$external" \
@@ -363,7 +395,7 @@ cmd_config() {
 cmd_set() {
   [[ $# -ge 1 ]] || die "set: missing name"
   local id; id=$(slug "$1"); shift
-  [[ -f "$DB_DIR/$id.env" ]] || die "not installed: $id"
+  rec_exists "$id" || die "not installed: $id"
   local desk exe new_dir="" new_name="" new_args="" new_source="" new_hidden=""
   local has_name=0 has_args=0 has_source=0
   while (( $# )); do
@@ -376,7 +408,7 @@ cmd_set() {
       *) die "set: unknown option $1" ;;
     esac
   done
-  desk=$(desktop_of "$id"); exe=$(app_exec "$id")
+  desk=$(rec_launcher "$id"); exe=$(app_exec "$id")
   [[ -f "$desk" ]] || die "launcher entry not found: $desk"
 
   if [[ -n "$new_dir" ]]; then
@@ -384,11 +416,11 @@ cmd_set() {
     [[ "$new_dir" == "$HOME"/* ]] || die "the folder must be inside your home directory: $new_dir"
     if [[ "$new_dir" != "$(dirname "$exe")" ]]; then
       local target
-      if [[ "$(db_get "$id" EXTERNAL)" == 1 ]]; then target="$new_dir/$(basename "$exe")"; else target="$new_dir/$id.AppImage"; fi
+      if rec_external "$id"; then target="$new_dir/$(basename "$exe")"; else target="$new_dir/$id.AppImage"; fi
       [[ ! -e "$target" ]] || die "$target already exists"
       mkdir -p "$new_dir"
       mv "$exe" "$target"
-      [[ "$(db_get "$id" EXTERNAL)" == 1 ]] || ln -sf "$target" "$BIN_DIR/$id"
+      rec_external "$id" || ln -sf "$target" "$BIN_DIR/$id"
       db_set "$id" EXEC "$target"
       write_exec "$desk" "$target" "$(exec_args "$desk")"
       exe=$target
@@ -402,7 +434,7 @@ cmd_set() {
     local repo=""
     [[ -z "$new_source" ]] || repo=$(gh_repo "$new_source")
     if [[ -z "$repo" ]]; then
-      if [[ "$(db_get "$id" EXTERNAL)" == 1 ]]; then db_set "$id" SOURCE external; else db_set "$id" SOURCE local; fi
+      if rec_external "$id"; then db_set "$id" SOURCE external; else db_set "$id" SOURCE local; fi
     else
       [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "the update source must look like owner/repo"
       db_set "$id" SOURCE "github:$repo"
@@ -414,7 +446,7 @@ cmd_set() {
     "") ;;
     *) die "set: --hidden takes true or false" ;;
   esac
-  command -v update-desktop-database >/dev/null && update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  refresh_desktop_db
   echo "Saved $id"
 }
 
@@ -451,11 +483,9 @@ cmd_list() {
     id=$(basename "$f" .env)
     if [[ ${1:-} == --json ]]; then
       [[ $first -eq 1 ]] || echo ","; first=0
-      local icon="" external=false
-      [[ "$(db_get "$id" EXTERNAL)" == 1 ]] && external=true
-      for icon in "$(db_get "$id" ICON)" "$ICON_DIR/startappimage-$id.png" "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage-$id.svg" ""; do
-        [[ -f "$icon" ]] && break
-      done
+      local icon external=false
+      rec_external "$id" && external=true
+      icon=$(rec_icon "$id")
       jq -nc --arg id "$id" --arg name "$(db_get "$id" NAME)" --arg source "$(db_get "$id" SOURCE)" \
         --arg version "$(db_get "$id" VERSION)" --arg icon "$icon" \
         --arg exec "$(app_exec "$id")" --argjson external "$external" \
@@ -510,22 +540,8 @@ cmd_update() {
 cmd_remove() {
   [[ $# -eq 1 ]] || die "remove: missing name"
   local id; id=$(slug "$1")
-  [[ -f "$DB_DIR/$id.env" ]] || die "not installed: $id"
-  if [[ "$(db_get "$id" EXTERNAL)" == 1 ]]; then
-    local exe desk icon
-    exe=$(db_get "$id" EXEC); desk=$(db_get "$id" DESKTOP); icon=$(db_get "$id" ICON)
-    [[ "$exe" == "$HOME"/* && ${exe,,} == *.appimage ]] || die "refusing to remove $exe"
-    rm -f "$exe" "$DB_DIR/$id.env"
-    [[ "$desk" != "$DESKTOP_DIR"/*.desktop ]] || rm -f "$desk"
-    [[ "$icon" != "$HOME/.local/share/"* ]] || rm -f "$icon"
-    command -v update-desktop-database >/dev/null && update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
-    echo "Removed $id"
-    return 0
-  fi
-  rm -f "$(app_exec "$id")" "$BIN_DIR/$id" "$DESKTOP_DIR/startappimage-$id.desktop" \
-        "$ICON_DIR/startappimage-$id.png" "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage-$id.svg" \
-        "$DB_DIR/$id.env"
-  command -v update-desktop-database >/dev/null && update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  rec_exists "$id" || die "not installed: $id"
+  rec_delete "$id"
   echo "Removed $id"
 }
 
@@ -569,7 +585,7 @@ mime_default() { xdg-mime query default application/vnd.appimage 2>/dev/null || 
 is_true() { [[ $1 == true ]]; }
 
 launcher_on() {
-  mkdir -p "$DESKTOP_DIR" "$HOME/.local/share/icons/hicolor/scalable/apps"
+  mkdir -p "$DESKTOP_DIR" "$SVG_ICON_DIR"
   cat >"$DESKTOP_DIR/startappimage.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
@@ -582,13 +598,13 @@ Categories=System;Utility;
 Keywords=appimage;install;uninstall;manager;
 Terminal=false
 DESKTOP
-  cp "$(dirname "$SELF")/../assets/startappimage.svg" "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage.svg"
-  update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  cp "$(dirname "$SELF")/../assets/startappimage.svg" "$SVG_ICON_DIR/startappimage.svg"
+  refresh_desktop_db
 }
 
 launcher_off() {
-  rm -f "$DESKTOP_DIR/startappimage.desktop" "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage.svg"
-  update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  rm -f "$DESKTOP_DIR/startappimage.desktop" "$SVG_ICON_DIR/startappimage.svg"
+  refresh_desktop_db
 }
 
 handler_on() {
@@ -607,7 +623,7 @@ MimeType=application/vnd.appimage;application/x-iso9660-appimage;
 NoDisplay=true
 Terminal=false
 DESKTOP
-  update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  refresh_desktop_db
   # shellcheck disable=SC2086
   xdg-mime default "$OPEN_DESKTOP" $MIME_TYPES
 }
@@ -619,7 +635,7 @@ handler_off() {
   if [[ -f $mime ]]; then
     sed -i '/^application\/vnd\.appimage=startappimage-open\.desktop$/d;/^application\/x-iso9660-appimage=startappimage-open\.desktop$/d' "$mime"
   fi
-  update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  refresh_desktop_db
   if [[ -n $prev ]] && [[ -f "$DESKTOP_DIR/$prev" || -f "/usr/share/applications/$prev" ]] && command -v xdg-mime >/dev/null; then
     for t in $MIME_TYPES; do xdg-mime default "$prev" "$t"; done
   fi

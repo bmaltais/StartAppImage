@@ -217,6 +217,17 @@ t_remove_an_unknown_app_fails() {
   cli remove nothing; refused "not installed: nothing"
 }
 
+t_an_svg_icon_is_installed_listed_and_removed_with_the_app() {
+  fake_appimage "$HOME/Downloads/Vec.AppImage" "Vec" 1
+  sed -i 's/demo\.png/demo.svg/; s/printf .png./printf "<svg\/>"/' "$HOME/Downloads/Vec.AppImage"
+  cli add "$HOME/Downloads/Vec.AppImage"; ok
+  local svg="$HOME/.local/share/icons/hicolor/scalable/apps/startappimage-vec.svg"
+  exists "$svg"
+  cli list --json; eq "$(jqv '.[0].icon')" "$svg" "icon"
+  cli remove vec; ok
+  absent "$svg"
+}
+
 # --- adopted apps -------------------------------------------------------------
 adopt_demo() { # a launcher entry the user made by hand, pointing at an AppImage in ~/Applications
   mkdir -p "$HOME/Applications" "$HOME/.local/share/applications"
