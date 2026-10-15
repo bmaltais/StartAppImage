@@ -88,6 +88,11 @@ Item {
         onClicked: view.svc.updateAll()
       }
       Button {
+        iconText: ""
+        tooltipText: "Setup: launcher, file handler, command line"
+        onClicked: view.svc.showSetup()
+      }
+      Button {
         iconText: ""
         tooltipText: "Check for updates"
         iconSpinning: view.svc.checking
