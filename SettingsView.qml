@@ -28,12 +28,11 @@ SettingsWindow {
   property var vals: ({})
   values: view.vals
 
-  function repoOf(src) { return src && src.indexOf("github:") === 0 ? src.substring(7) : "" }
 
   function refreshVals() {
     var c = view.cfg
     view.vals = { name: c.name || "", show: c.hidden !== true, args: c.args || "",
-      source: view.repoOf(c.source), dir: c.dir || "", folder: "" }
+      source: c.repo || "", dir: c.dir || "", folder: "" }
   }
   onVisibleChanged: if (visible) {
     view.reset()
@@ -67,7 +66,7 @@ SettingsWindow {
     var st = view.sourceState
     if (st === "error" || st === "checking") return
     var next = st === "ok" ? view.res.repo : st === "warn" ? view.sourceText.trim() : ""
-    if (next !== view.repoOf(view.cfg.source)) view.apply(["--source", next])
+    if (next !== (view.cfg.repo || "")) view.apply(["--source", next])
   }
 
   // ---- folder: checked as you type, and a pasted link is spotted ---------------
@@ -82,9 +81,9 @@ SettingsWindow {
 
   // What the last change said when it failed, next to the setting it was about.
   readonly property string saveError: view.svc.settingsError
-  function errorFor(re) { return re.test(view.saveError) ? view.saveError : "" }
-  readonly property string sourceSaveError: view.errorFor(/source/i)
-  readonly property string folderSaveError: view.sourceSaveError === "" ? view.errorFor(/folder/i) : ""
+  function errorFor(field) { return view.svc.settingsErrorField === field ? view.saveError : "" }
+  readonly property string sourceSaveError: view.errorFor("source")
+  readonly property string folderSaveError: view.errorFor("dir")
   readonly property string otherSaveError: view.saveError !== "" && view.sourceSaveError === "" && view.folderSaveError === "" ? view.saveError : ""
 
   function apply(args) { view.svc.applyAppSetting(args) }

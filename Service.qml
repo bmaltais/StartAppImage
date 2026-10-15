@@ -80,6 +80,7 @@ Item {
   property var cfg: ({})
   property string settingsState: "idle"      // loading | ready | saving
   property string settingsError: ""
+  property string settingsErrorField: ""   // "source", "dir", ... or empty when it belongs to no one setting
   readonly property string home: Quickshell.env("HOME")
   // Folders to offer: where AppImages already live, plus the app's own folder if it is elsewhere.
   readonly property var locationOptions: {
@@ -221,6 +222,7 @@ Item {
   property bool settingsBusy: false
   function applyAppSetting(args) {
     root.settingsError = ""
+    root.settingsErrorField = ""
     root.settingsQueue = root.settingsQueue.concat([args])
     root.runNextAppSetting()
   }
@@ -233,7 +235,7 @@ Item {
       return
     }
     root.settingsBusy = true
-    setProc.command = [root.cli, "set", root.settingsApp.id].concat(root.settingsQueue[0])
+    setProc.command = [root.cli, "set", root.settingsApp.id].concat(root.settingsQueue[0], ["--json"])
     root.settingsQueue = root.settingsQueue.slice(1)
     setProc.running = true
   }
@@ -249,8 +251,8 @@ Item {
     root.installLog = ""
     root.installState = "installing"
     installProc.command = root.installDir !== ""
-      ? [root.cli, "add", root.installFile, "--dir", root.installDir]
-      : [root.cli, "add", root.installFile]
+      ? [root.cli, "add", root.installFile, "--dir", root.installDir, "--json"]
+      : [root.cli, "add", root.installFile, "--json"]
     installProc.running = true
   }
 
@@ -440,7 +442,15 @@ Item {
 
   Process {
     id: setProc
-    stderr: SplitParser { onRead: line => root.settingsError = line.replace(/^startappimage: /, "") }
+    // stdout is {ok, id} or {ok: false, field, error}; field is the setting a failure belongs to, or empty.
+    stdout: SplitParser {
+      onRead: line => {
+        try {
+          var r = JSON.parse(line)
+          if (!r.ok) { root.settingsError = r.error; root.settingsErrorField = r.field }
+        } catch (e) {}
+      }
+    }
     onExited: code => {
       if (code !== 0 && root.settingsError === "") root.settingsError = "Could not save the setting."
       // The list and the update check follow what changed; the window stays open.
@@ -470,11 +480,13 @@ Item {
 
   Process {
     id: installProc
+    // Progress is on stderr; stdout is the one JSON result, {ok, id, name} or {ok: false, error}.
     stdout: SplitParser {
       onRead: line => {
-        root.installLog += line + "\n"
-        var m = line.match(/^Installed .* \((.+)\)$/)
-        if (m) root.installedId = m[1]
+        var r = ({})
+        try { r = JSON.parse(line) } catch (e) { root.installLog += line + "\n"; return }
+        if (r.ok) { root.installedId = r.id; root.installLog += "Installed " + r.name + " (" + r.id + ")\n" }
+        else root.installLog += r.error + "\n"
       }
     }
     stderr: SplitParser { onRead: line => root.installLog += line + "\n" }

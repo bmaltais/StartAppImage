@@ -24,10 +24,11 @@ Rectangle {
   readonly property bool hasUpdate: row.updateTo !== ""
   readonly property bool hot: hover.hovered || row.current
   readonly property string source: {
-    var s = row.app.source || ""
-    if (s.indexOf("github:") === 0) return s.substring(7)
-    if (s.indexOf("url:") === 0) return "from URL"
-    if (s === "external") return "added outside StartAppImage"
+    switch (row.app.sourceKind) {
+    case "github": return row.app.repo
+    case "url": return "from URL"
+    case "external": return "added outside StartAppImage"
+    }
     return "local file"
   }
   readonly property string version: (row.app.version && row.app.version !== "local") ? row.app.version : ""
