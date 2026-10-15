@@ -4,7 +4,8 @@ How a change gets checked, from the cheapest check to trying it in a live shell.
 
 | You want to | Use | Touches your desktop? |
 |---|---|---|
-| know the scripts and QML are not broken | `scripts/check.sh` (runs on every commit) | no |
+| know the scripts and QML are not broken, and the command line still behaves | `scripts/check.sh` (runs on every commit) | no |
+| run only the command-line tests | `tests/cli.sh [word ...]` | no: a throwaway `$HOME` |
 | see the plugin run, click it, type into it | `scripts/dev` | no: a nested desktop out of reach of your mouse |
 | watch that session | `scripts/dev watch` | a view-only window |
 | try it on your own shell | `scripts/reload`, `scripts/pointer.sh` | yes: restarts your shell, moves your pointer |
@@ -27,6 +28,7 @@ omarchy plugin validate . # the manifest
 - **Enable the hook once per clone:** `git config core.hooksPath .githooks`. Override for the rare commit that must go on `main`: `ALLOW_MAIN=1 git commit`.
 - **QML warnings.** `qmllint` cannot see Quickshell's or Omarchy's types, so about ninety warnings are standing noise, kept in `scripts/qmllint-baseline.txt`. A *new* one (a misspelt id, a removed property) fails. If it is a real name from the shell, accept it with `scripts/lint-qml.py --update`. The idea is StartBar's, ported to Python.
 - **Project rules** live in `scripts/check.sh`: no empty `iconText` (an icon whose glyph was lost in an edit), and the recorder's window geometry is computed, never typed.
+- **Command-line tests.** `tests/cli.sh` runs `bin/startappimage` against a throwaway `$HOME` with a fake AppImage and asserts exit codes, JSON and files on disk (add, list, config, set, remove, adopted apps, locations, window, setup). A test is a `t_*` function; name words on the command line select tests. It never touches the network, the real home or the desktop, so it also runs in CI. Update checks against GitHub are not covered yet.
 - **What it cannot catch:** a layout that looks wrong, a click that misses, anything about the live shell. That is what the test session is for.
 
 ## 2. The test session: `scripts/dev`

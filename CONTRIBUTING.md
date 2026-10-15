@@ -21,6 +21,7 @@
 | `scripts/tour.sh`, `scripts/tour-banner.qml`, `scripts/nested/`, `scripts/tours/` | The tour recorder, and this app's tour. `screenshots/hero.avif` (the animation at the top of the README) is retaken with `scripts/hero.sh --install` when a step of the tour changes. The recorder is app-agnostic: another Start app supplies its own tour file. See `docs/recording-tours.md` |
 | `scripts/check.sh`, `lint-sh.sh`, `lint-qml.py`, `.githooks/`, `.github/workflows/check.yml` | The checks, the pre-commit hook (`git config core.hooksPath .githooks` once per clone; it refuses commits on `main`) and the CI job |
 | `scripts/dev`, `dev-view.qml`, `reload`, `pointer.sh`, `sheet` | Testing tools: a nested test session, the real-shell reload, a pointer click, contact sheets. See `docs/testing.md` |
+| `tests/cli.sh` | Behaviour tests for `bin/startappimage` in a throwaway `$HOME`; part of `scripts/check.sh` and CI |
 | `docs/testing.md` | How a change is checked and tried, and what went wrong before |
 | `docs/ui-standards.md` | How the UI looks and behaves, and why. Read it before changing the UI, and update it when a design decision changes |
 
