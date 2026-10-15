@@ -201,7 +201,7 @@ Item {
           + (view.svc.checkHours > 0 ? "  \u00b7  checked every " + (view.svc.checkHours === 1 ? "hour" : view.svc.checkHours + " hours") : "")
       }
       Note { visible: view.sourceState === "warn"; text: view.res.error + ". It will be saved as typed and checked later." }
-      Note { visible: view.sourceState === "error"; bad: true; text: view.res.error }
+      Note { visible: view.sourceState === "error"; bad: true; text: view.res.error || "" }
       Note { visible: view.sourceSaveError !== ""; bad: true; text: view.sourceSaveError }
       Button {
         visible: view.sourceState !== "empty"
