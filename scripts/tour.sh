@@ -501,7 +501,7 @@ while IFS='|' read -r ts text; do
   vf+="drawtext=fontfile=$TOUR_FONT:text='$text':fontsize=24:fontcolor=white:box=1:boxcolor=0x13151f@0.88:boxborderw=14:x=(w-text_w)/2:y=h-70:enable='between(t,$start,$end)',"
 done <"$caps"
 ffmpeg -loglevel error -y -ss 0.4 -i "$TMP/tour.mp4" \
-  -vf "${vf}fps=10,scale=1200:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" \
+  -vf "${vf}fps=10,scale=${TOUR_GIF_WIDTH:-1000}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${TOUR_GIF_COLORS:-128}:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" \
   -loop 0 "$TMP/tour.gif"
 echo "tour: $(du -h "$TMP/tour.gif" | cut -f1)"
 

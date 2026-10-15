@@ -129,6 +129,8 @@ Anything the tour changes must come back. Save it in `tour_prepare`, restore it 
 | `TOUR_BG` | The backdrop colour | `#262a36` |
 | `TOUR_RESTART_SHELL` | `1` to restart the Omarchy shell after `tour_prepare` and again at the end | `0` |
 | `TOUR_FONT` | The caption font file | JetBrains Mono Nerd Font Bold |
+| `TOUR_GIF_WIDTH` | The GIF's width in pixels (10 frames a second, one 128-colour palette) | `1000` |
+| `TOUR_GIF_COLORS` | The GIF's palette size. 64 posterizes a photo wallpaper; 256 is smoother but about 1.2 MB bigger | `128` |
 
 ### Functions a tour file defines
 
@@ -162,7 +164,7 @@ Other commands in `tour_play` are ordinary shell: opening the app (`omarchy-shel
 - **A virtual monitor**, because the real screen is yours: the recorder must not touch it, show its contents, or be disturbed by what is on it. Omarchy's screen recorder cannot see a virtual monitor, so frames are taken with `grim` (cursor included) in a loop, each file named for the time it was taken.
 - **Frame timing.** The frames are joined with `ffmpeg`'s concat demuxer, each shown for the time until the next one, so the video plays at the speed things really happened even though grabs take a variable time.
 - **Captions** are drawn by `ffmpeg`'s `drawtext`, each enabled between the time it was said and the time of the next.
-- **The GIF** uses a two-pass palette (`palettegen` then `paletteuse`) at 10 frames a second and 1200 px wide, which keeps a minute of UI to a few MB. Change those numbers at the end of `scripts/tour.sh` if you need a smaller or sharper file.
+- **The GIF** uses a two-pass palette (`palettegen` then `paletteuse`) at 10 frames a second, 1000 px wide and 128 colours (`TOUR_GIF_WIDTH`, `TOUR_GIF_COLORS`), which keeps 78 seconds of UI to 3.4 MB. Measured on one recording: lowering the frame rate saves little (10 to 6 fps: 4.7 to 4.0 MB, because only the changed parts of a frame are stored), while width and colours matter most (900 px: 2.8 MB; 64 colours: 3.5 MB, but the photo wallpaper bands; 256 colours: 5.9 MB). A WebM of the same recording is about 1 MB, but a `<video>` of a repo file is not known to play in a GitHub README, so the GIF stays the hero.
 - **The pointer** is moved with `hyprctl dispatch hl.dsp.cursor.move`, which places it, followed by a 1 px `ydotool` nudge, which makes Hyprland fire a real motion event so hovers work. Clicks and typing go through `ydotool`.
 - **The red window** (`scripts/tour-banner.qml`, which in `--nested` mode is a strip above the nested window plus the shield over it), run by `quickshell` as its own small instance next to the Omarchy shell (so a shell restart does not touch it): a centred, always-on-top layer-shell window on the real monitor. It runs twice: first in *confirm* mode (Proceed and Cancel, the answer is written to a file the recorder waits on), then in *status* mode, where it shows a text file the recorder rewrites at each step and turns green when it is told the tour is done. It redraws in place, so it does not flicker, and in status mode it takes no keyboard focus. Notifications cannot do this job: the Omarchy shell's, and Hyprland's own, appear on the focused monitor, which is the virtual one while recording, so they would end up in the GIF. (A first version used a terminal window that redrew its text four times a second; it flickered.)
 - **Keys only when the app is up.** `key`, `typed` and `esc` check that the app's layer is mapped on the virtual monitor first. Otherwise the keys would go to the backdrop window (a stray `q` quits `imv`) or somewhere worse.
