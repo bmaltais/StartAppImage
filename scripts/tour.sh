@@ -2,11 +2,14 @@
 # Records an app's tour as a GIF: a short story of using it, with a caption for each step. The same
 # recorder serves every Start app; each app supplies a tour file that says what to do.
 #
-#   scripts/tour.sh TOURFILE [--install] [--yes]
+#   scripts/tour.sh TOURFILE [--install] [--yes] [--nested]
 #
 #   TOURFILE    a bash file that defines the tour (see "Writing a tour" below), e.g. scripts/tours/hero.sh
 #   --install   copy the GIF to the tour's TOUR_OUT in the repo (default: leave it in $TMPDIR and say where)
 #   --yes       do not ask first (for when it is run from another script)
+#   --nested    run the tour in a nested session shown in a window on your screen, instead of on a hidden virtual
+#               monitor: you can watch it, your mouse and keyboard cannot reach it, and it changes only a sandbox,
+#               never your real settings or files. See scripts/nested/session.sh and docs/recording-tours.md.
 #
 # How it works. It films a temporary virtual monitor frame by frame with grim, so your own screen is left
 # alone, puts a plain backdrop on it, and drives the real pointer and keyboard with ydotool to click through
@@ -15,8 +18,9 @@
 # (Proceed or Cancel) and then stays up saying so, with the step it is on, until it says it is done (a
 # notification would show on the virtual monitor, and in the GIF). Whatever the tour changes is put back when
 # it ends or is interrupted.
-# Needs: hyprctl (Hyprland), jq, grim, ffmpeg (with drawtext), ImageMagick, imv, quickshell, ydotool with its daemon
-# running and a writable /dev/uinput. docs/recording-tours.md is the guide.
+# Needs: hyprctl (Hyprland), jq, grim, ffmpeg (with drawtext), ImageMagick, imv, quickshell, and ydotool with its
+# daemon running and a writable /dev/uinput (not for --nested, which needs wtype, gcc and wayland-scanner instead).
+# docs/recording-tours.md is the guide.
 #
 # Writing a tour. A tour file is sourced by this script and defines:
 #
@@ -54,14 +58,16 @@ REPO=$(cd "$HERE/.." && pwd)
 tourfile=${1:-}
 install=false
 ask=true
+NESTED=false
 for arg in "${@:2}"; do
   case $arg in
     --install) install=true ;;
     --yes) ask=false ;;
+    --nested) NESTED=true ;;
     *) echo "tour: unknown option $arg" >&2; exit 2 ;;
   esac
 done
-[[ -f $tourfile ]] || { echo "tour: usage: scripts/tour.sh TOURFILE [--install] [--yes]" >&2; exit 2; }
+[[ -f $tourfile ]] || { echo "tour: usage: scripts/tour.sh TOURFILE [--install] [--yes] [--nested]" >&2; exit 2; }
 tourfile=$(cd "$(dirname "$tourfile")" && pwd)/$(basename "$tourfile")
 
 # shellcheck disable=SC1090
@@ -78,13 +84,19 @@ declare -F tour_play >/dev/null || { echo "tour: the tour file must define tour_
 MON=TOURREC
 W=${TOUR_SIZE%x*}
 H=${TOUR_SIZE#*x}
-for tool in hyprctl jq grim ffmpeg ffprobe magick imv quickshell ydotool notify-send; do
+for tool in hyprctl jq grim ffmpeg ffprobe magick imv quickshell notify-send; do
   command -v "$tool" >/dev/null || { echo "tour: $tool is needed" >&2; exit 1; }
 done
+$NESTED || command -v ydotool >/dev/null || { echo "tour: ydotool is needed (or use --nested)" >&2; exit 1; }
 if declare -F tour_requires >/dev/null; then tour_requires || exit 1; fi
 
 TMP=$(mktemp -d)
 mkdir -p "$TMP/frames"
+if $NESTED; then
+  # shellcheck source=nested/session.sh
+  source "$HERE/nested/session.sh"
+  nested_requires || exit 1
+fi
 
 # ---- the window that asks, and then says it is recording ----------------------------------------
 # scripts/tour-banner.qml, run with quickshell: a red window in the middle of the real screen. It redraws in
@@ -112,11 +124,12 @@ confirm() { # asks; returns non-zero if the answer is not Proceed
 start_banner() {
   say "Starting..."
   TOUR_MODE=status TOUR_TITLE=$TOUR_TITLE TOUR_SCREEN=$orig_mon TOUR_STATUS=$status \
+    TOUR_NESTED=$($NESTED && echo 1 || echo 0) TOUR_SHIELD=${SHIELD:-0,0,0,0} \
     quickshell -n -p "$banner_qml" >/dev/null 2>&1 &
   banner_pid=$!
   sleep 1
   # Putting the window up moves focus to the real screen; the app must open on the virtual one.
-  hyprctl dispatch "hl.dsp.focus({ monitor = \"$MON\" })" >/dev/null
+  $NESTED || hyprctl dispatch "hl.dsp.focus({ monitor = \"$MON\" })" >/dev/null
 }
 if $ask; then
   confirm || { echo "tour: cancelled, nothing was changed." >&2; rm -rf "$TMP"; exit 0; }
@@ -130,29 +143,55 @@ bg_pid=""
 cleanup() {
   [[ -n $rec_pid ]] && kill "$rec_pid" 2>/dev/null
   [[ -n $bg_pid ]] && kill "$bg_pid" 2>/dev/null
-  if declare -F tour_restore >/dev/null; then tour_restore; fi
-  hyprctl output remove $MON >/dev/null 2>&1
-  hyprctl dispatch "hl.dsp.focus({ monitor = \"$orig_mon\" })" >/dev/null 2>&1
-  hyprctl dispatch "hl.dsp.cursor.move({ x = $orig_cx, y = $orig_cy })" >/dev/null 2>&1
-  if [[ $TOUR_RESTART_SHELL == 1 ]]; then
-    omarchy-restart-shell >/dev/null 2>&1
-    sleep 7
+  if $NESTED; then
+    # Only the sandbox was changed, and it is thrown away with the session: nothing of yours to put back.
+    nested_stop
+  else
+    if declare -F tour_restore >/dev/null; then tour_restore; fi
+    hyprctl output remove $MON >/dev/null 2>&1
+    hyprctl dispatch "hl.dsp.focus({ monitor = \"$orig_mon\" })" >/dev/null 2>&1
+    hyprctl dispatch "hl.dsp.cursor.move({ x = $orig_cx, y = $orig_cy })" >/dev/null 2>&1
+    if [[ $TOUR_RESTART_SHELL == 1 ]]; then
+      omarchy-restart-shell >/dev/null 2>&1
+      sleep 7
+    fi
   fi
   # Green, "the tour is done", for a few seconds; then the window goes.
-  say done
+  say "done"
   notify-send -a "$TOUR_TITLE tour" -u normal -t 8000 "The $TOUR_TITLE tour is done" "You can use the mouse and keyboard again." 2>/dev/null
   sleep 6
   [[ -n $banner_pid ]] && kill "$banner_pid" 2>/dev/null
 }
 trap cleanup EXIT
 
+magick -size "${W}x${H}" "xc:$TOUR_BG" "$TMP/bg.png"
+if $NESTED; then
+  # ---- a nested session in a window, in a sandbox --------------------------------------------------
+  prev_focus=$(hyprctl activewindow -j | jq -r '.address // empty')
+  sandbox_build || exit 1
+  sandbox_enter
+  if declare -F tour_prepare >/dev/null; then tour_prepare; fi
+  nested_start || exit 1
+  nested_place "$prev_focus"
+  start_banner
+  nested_wait_ready
+  nested_enter
+  CAPMON=$NMON
+  # The nested shell draws the theme's wallpaper, so it looks like a real Omarchy desktop. TOUR_BACKDROP=plain
+  # puts the flat TOUR_BG colour over it instead (as the virtual monitor mode always does).
+  if [[ ${TOUR_BACKDROP:-wallpaper} == plain ]]; then
+    imv -f "$TMP/bg.png" >/dev/null 2>&1 &
+    bg_pid=$!
+  fi
+  sleep 1.5
+  if declare -F tour_setup >/dev/null; then tour_setup; fi
+else
 # ---- the virtual monitor, and a plain backdrop on it ------------------------------------------------
 MX=$(hyprctl monitors -j | jq -r '[.[] | .x + .width] | max')
 hyprctl output create headless $MON >/dev/null
 hyprctl eval "hl.monitor({ output = \"$MON\", mode = \"${W}x${H}@60\", position = \"${MX}x0\", scale = 1 })" >/dev/null
 sleep 1
 hyprctl dispatch "hl.dsp.focus({ monitor = \"$MON\" })" >/dev/null
-magick -size "${W}x${H}" "xc:$TOUR_BG" "$TMP/bg.png"
 imv -f "$TMP/bg.png" >/dev/null 2>&1 &
 bg_pid=$!
 sleep 1.5
@@ -166,16 +205,28 @@ if [[ $TOUR_RESTART_SHELL == 1 ]]; then
   sleep 0.5
 fi
 if declare -F tour_setup >/dev/null; then tour_setup; fi
+  CAPMON=$MON
+fi
 
 # ---- driving the pointer and keys -------------------------------------------------------------
 gx=$((W / 2)); gy=$((H / 2))
-at() { hyprctl dispatch "hl.dsp.cursor.move({ x = $((MX + $1)), y = $2 })" >/dev/null; ydotool mousemove -x 1 -y 0; ydotool mousemove -x -1 -y 0; gx=$1; gy=$2; }
+at() {
+  if $NESTED; then nest_at "$1" "$2"
+  else hyprctl dispatch "hl.dsp.cursor.move({ x = $((MX + $1)), y = $2 })" >/dev/null; ydotool mousemove -x 1 -y 0; ydotool mousemove -x -1 -y 0
+  fi
+  gx=$1; gy=$2
+}
 glide() {
   local i x0=$gx y0=$gy
   for i in 1 2 3 4 5 6 7 8; do at $((x0 + ($1 - x0) * i / 8)) $((y0 + ($2 - y0) * i / 8)); sleep 0.025; done
 }
-click() { glide "$1" "$2"; sleep 0.35; ydotool click 0xC0 >/dev/null; sleep "${3:-0.9}"; }
+click() {
+  glide "$1" "$2"; sleep 0.35
+  if $NESTED; then nest_click "$1" "$2"; else ydotool click 0xC0 >/dev/null; fi
+  sleep "${3:-0.9}"
+}
 drag() {
+  if $NESTED; then nest_drag "$1" "$2"; sleep 0.6; return; fi
   local i
   ydotool click 0x40 >/dev/null; sleep 0.2
   for i in 1 2 3 4 5 6 7 8 9 10; do ydotool mousemove -x $(($1 / 10)) -y $(($2 / 10)) >/dev/null; sleep 0.05; done
@@ -185,11 +236,21 @@ drag() {
 # backdrop window.
 overlay_up() {
   [[ -n $TOUR_LAYER ]] || return 1
-  hyprctl layers -j | jq -e --arg m $MON --arg ns "$TOUR_LAYER" '.[$m] | [.. | .namespace? // empty] | any(. == $ns)' >/dev/null 2>&1
+  hyprctl layers -j | jq -e --arg m "$CAPMON" --arg ns "$TOUR_LAYER" '.[$m] | [.. | .namespace? // empty] | any(. == $ns)' >/dev/null 2>&1
 }
-key() { if overlay_up; then ydotool key "$@" >/dev/null; else echo "tour: window not up, skipped keys $*" >&2; fi; }
-typed() { if overlay_up; then ydotool type --key-delay 45 "$1" >/dev/null; else echo "tour: window not up, skipped typing" >&2; fi; }
-esc() { key 1:1 1:0; }
+# key takes ydotool key codes (not in --nested mode: use esc and typed there).
+key() {
+  $NESTED && { echo "tour: key is not available with --nested, use esc or typed" >&2; return 1; }
+  if overlay_up; then ydotool key "$@" >/dev/null; else echo "tour: window not up, skipped keys $*" >&2; fi
+}
+typed() {
+  if ! overlay_up; then echo "tour: window not up, skipped typing" >&2; return; fi
+  if $NESTED; then nest_type "$1"; else ydotool type --key-delay 45 "$1" >/dev/null; fi
+}
+esc() {
+  if ! overlay_up; then echo "tour: window not up, skipped keys esc" >&2; return; fi
+  if $NESTED; then nest_key Escape; else ydotool key 1:1 1:0 >/dev/null; fi
+}
 wait_until() { local i; for ((i = 0; i < ${2:-30} * 2; i++)); do eval "$1" >/dev/null 2>&1 && return 0; sleep 0.5; done; return 1; }
 
 # ---- recording --------------------------------------------------------------------------------
@@ -202,7 +263,7 @@ cap() {
   say "Step $step${TOUR_STEPS:+ of $TOUR_STEPS}: $1"
 }
 
-(while :; do grim -c -t jpeg -q 90 -o $MON "$TMP/frames/$(date +%s%N).jpg"; done) &
+(while :; do grim -c -t jpeg -q 90 -o "$CAPMON" "$TMP/frames/$(date +%s%N).jpg"; done) &
 rec_pid=$!
 sleep 1.5
 tour_play

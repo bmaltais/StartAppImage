@@ -189,6 +189,7 @@ Newest first. One line each: what was decided, and why.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-15 | The tour recorder gets a `--nested` mode: the tour runs in a second Hyprland shown as a window, in a sandbox, driven over its own Wayland socket | You can watch it, your mouse and keyboard cannot disturb it, and it never changes your real settings or files. It is opt-in until it has been used on more setups |
 | 2026-10-15 | The tour recorder asks for confirmation in a centred red window (Proceed / Cancel), then shows its progress in it, instead of a flickering terminal banner | A recording takes over the pointer and keyboard; people must agree to it first and be able to see it is on |
 | 2026-10-15 | The README leads with a recorded tour (`screenshots/hero.gif`) made by an app-agnostic recorder that reads a per-app tour file | A still shows a look, not how the app is used; one recorder keeps every Start app's tour alike |
 | 2026-10-15 | Settings windows say "SETTINGS" in small caps under their title | Nothing in the window said what it was for; the title-over-small-caps pattern is the one the manager already uses |

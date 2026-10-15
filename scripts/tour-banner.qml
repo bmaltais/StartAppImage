@@ -9,6 +9,10 @@
 //   TOUR_SCREEN   the name of the monitor to appear on (the real one)
 //   TOUR_ANSWER   confirm: a file that gets "proceed" or "cancel" written to it, then the window closes
 //   TOUR_STATUS   status: a file whose first line is "recording" or "done" and the rest is the text to show
+//   TOUR_NESTED   "1" when the tour runs in a nested session shown in a window on the real screen. Then the status
+//                 window is a strip above that window instead of a box in the middle of the screen, and a transparent
+//                 shield covers the window so no click reaches it.
+//   TOUR_SHIELD   nested: "X,Y,W,H", where the nested window is on the real monitor
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -26,6 +30,8 @@ ShellRoot {
     return i < 0 ? "" : root.statusText.substring(i + 1).replace(/\n+$/, "")
   }
 
+  readonly property bool nested: Quickshell.env("TOUR_NESTED") === "1"
+  readonly property var shield: (Quickshell.env("TOUR_SHIELD") || "0,0,0,0").split(",").map(Number)
   readonly property color red: "#c62828"
   readonly property color green: "#2e7d32"
 
@@ -49,13 +55,16 @@ ShellRoot {
       for (var i = 0; i < Quickshell.screens.length; i++) if (Quickshell.screens[i].name === name) return Quickshell.screens[i]
       return Quickshell.screens[0]
     }
-    // No anchors: a layer-shell window with none is centred on its screen.
+    // Not nested: no anchors, so a layer-shell window is centred on its screen. Nested: a strip along the top, above
+    // the nested window.
+    anchors.top: root.nested && root.mode === "status"
+    margins.top: 24
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.namespace: "start-tour-banner"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: root.mode === "confirm" ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
-    implicitWidth: 760
-    implicitHeight: col.implicitHeight + 72
+    implicitWidth: root.nested && root.mode === "status" ? Math.max(760, root.shield[2]) : 760
+    implicitHeight: root.nested && root.mode === "status" ? 124 : col.implicitHeight + 72
     color: "transparent"
 
     Rectangle {
@@ -72,8 +81,8 @@ ShellRoot {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: 36
-        spacing: 18
+        anchors.margins: root.nested && root.mode === "status" ? 18 : 36
+        spacing: root.nested && root.mode === "status" ? 8 : 18
 
         Text {
           width: parent.width
@@ -81,14 +90,16 @@ ShellRoot {
           horizontalAlignment: Text.AlignHCenter
           color: "white"
           font.family: "JetBrainsMono Nerd Font"
-          font.pixelSize: 28
+          font.pixelSize: root.nested && root.mode === "status" ? 20 : 28
           font.bold: true
           text: root.mode === "confirm" ? "Record the " + root.appTitle + " tour?"
             : root.done ? "The tour is done"
+            : root.nested ? "Recording the " + root.appTitle + " tour. You can watch below. Your mouse and keyboard cannot reach it."
             : "Recording the " + root.appTitle + " tour"
         }
 
         Text {
+          visible: !(root.nested && root.mode === "status")
           width: parent.width
           wrapMode: Text.WordWrap
           horizontalAlignment: Text.AlignHCenter
@@ -109,7 +120,7 @@ ShellRoot {
           horizontalAlignment: Text.AlignHCenter
           color: "white"
           font.family: "JetBrainsMono Nerd Font"
-          font.pixelSize: 21
+          font.pixelSize: root.nested && root.mode === "status" ? 18 : 21
           font.bold: true
           text: root.statusBody
         }
@@ -161,5 +172,24 @@ ShellRoot {
         }
       }
     }
+  }
+
+  // Nested: a transparent window exactly over the nested session's window, above it. It takes every click and hover
+  // that would otherwise reach the nested session, so only the recorder can drive it.
+  PanelWindow {
+    visible: root.nested && root.mode === "status" && !root.done
+    screen: win.screen
+    anchors.top: true
+    anchors.left: true
+    margins.top: root.shield[1]
+    margins.left: root.shield[0]
+    implicitWidth: root.shield[2]
+    implicitHeight: root.shield[3]
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.namespace: "start-tour-shield"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    color: "transparent"
+    MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; hoverEnabled: true; cursorShape: Qt.ForbiddenCursor }
   }
 }

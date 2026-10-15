@@ -9,6 +9,7 @@ How to record a short GIF that shows an app being used, with `scripts/tour.sh`. 
 - [Reference](#reference)
 - [How it works inside](#how-it-works-inside)
 - [Troubleshooting](#troubleshooting)
+- [Nested mode](#nested-mode---nested)
 - [Using it in another Start app](#using-it-in-another-start-app)
 
 ## Run the StartAppImage tour
@@ -17,6 +18,7 @@ How to record a short GIF that shows an app being used, with `scripts/tour.sh`. 
 scripts/hero.sh              # records it, leaves the GIF in /tmp/hero.gif for a look
 scripts/hero.sh --install    # records it and copies it to screenshots/hero.gif
 scripts/hero.sh --yes        # does not ask first (for when another script runs it)
+scripts/hero.sh --nested     # runs it in a window you can watch, in a sandbox (see "Nested mode")
 ```
 
 `scripts/hero.sh` is a shortcut for `scripts/tour.sh scripts/tours/hero.sh`. It takes a little over two minutes, of which the tour itself is about one. A red window in the middle of your screen first asks you to confirm: **Proceed** starts the recording, **Cancel** (or Esc) stops before anything is touched. After that, **leave the mouse and keyboard alone** until the window turns green and says the tour is done: the pointer is driving a virtual screen and typing goes there.
@@ -160,7 +162,7 @@ Other commands in `tour_play` are ordinary shell: opening the app (`omarchy-shel
 - **Captions** are drawn by `ffmpeg`'s `drawtext`, each enabled between the time it was said and the time of the next.
 - **The GIF** uses a two-pass palette (`palettegen` then `paletteuse`) at 10 frames a second and 1200 px wide, which keeps a minute of UI to a few MB. Change those numbers at the end of `scripts/tour.sh` if you need a smaller or sharper file.
 - **The pointer** is moved with `hyprctl dispatch hl.dsp.cursor.move`, which places it, followed by a 1 px `ydotool` nudge, which makes Hyprland fire a real motion event so hovers work. Clicks and typing go through `ydotool`.
-- **The red window** is `scripts/tour-banner.qml`, run by `quickshell` as its own small instance next to the Omarchy shell (so a shell restart does not touch it): a centred, always-on-top layer-shell window on the real monitor. It runs twice: first in *confirm* mode (Proceed and Cancel, the answer is written to a file the recorder waits on), then in *status* mode, where it shows a text file the recorder rewrites at each step and turns green when it is told the tour is done. It redraws in place, so it does not flicker, and in status mode it takes no keyboard focus. Notifications cannot do this job: the Omarchy shell's, and Hyprland's own, appear on the focused monitor, which is the virtual one while recording, so they would end up in the GIF. (A first version used a terminal window that redrew its text four times a second; it flickered.)
+- **The red window** (`scripts/tour-banner.qml`, which in `--nested` mode is a strip above the nested window plus the shield over it), run by `quickshell` as its own small instance next to the Omarchy shell (so a shell restart does not touch it): a centred, always-on-top layer-shell window on the real monitor. It runs twice: first in *confirm* mode (Proceed and Cancel, the answer is written to a file the recorder waits on), then in *status* mode, where it shows a text file the recorder rewrites at each step and turns green when it is told the tour is done. It redraws in place, so it does not flicker, and in status mode it takes no keyboard focus. Notifications cannot do this job: the Omarchy shell's, and Hyprland's own, appear on the focused monitor, which is the virtual one while recording, so they would end up in the GIF. (A first version used a terminal window that redrew its text four times a second; it flickered.)
 - **Keys only when the app is up.** `key`, `typed` and `esc` check that the app's layer is mapped on the virtual monitor first. Otherwise the keys would go to the backdrop window (a stray `q` quits `imv`) or somewhere worse.
 
 ## Troubleshooting
@@ -173,7 +175,49 @@ Other commands in `tour_play` are ordinary shell: opening the app (`omarchy-shel
 - **The Proceed button does nothing**: a click needs the pointer to have moved onto the button first, as a real mouse does. If you are driving it with `ydotool` yourself, move onto the button, then click.
 - **The GIF is too big**: shorten the tour, lower the frame rate or width, or reduce `max_colors` in the last `ffmpeg` command of `scripts/tour.sh`.
 - **The apps open on your real screen instead of the virtual one**: the window that asks puts focus on your real monitor; the recorder refocuses the virtual one after it appears. If you add steps that open windows before `tour_play`, refocus it yourself: `hyprctl dispatch "hl.dsp.focus({ monitor = \"$MON\" })"`.
+- **A "Process crashed: xdg-desktop-portal-hyprland" notice** (in `--nested` mode): a portal started inside the nested session and died when its compositor went. The recorder now gives the nested session a D-Bus that starts nothing by itself and stops its processes before the compositor, so this should not appear; if it does, `coredumpctl list` shows which process, and the notice (critical, so it stays up) can be cleared with `omarchy-notification-dismiss "Process crashed"`.
 - **Your pointer jumped**: it is on the virtual monitor for the length of the tour, and goes back to where it was at the end.
+
+## Nested mode (`--nested`)
+
+The default mode films a hidden virtual monitor and drives your **real** mouse and keyboard, so you cannot use them while it runs, and it changes your real app and settings and puts them back afterwards. `--nested` removes all three problems:
+
+```sh
+scripts/hero.sh --nested             # or: scripts/tour.sh TOURFILE --nested
+```
+
+- **You can watch it.** The tour runs inside a **second Hyprland that opens as a window** on your screen (1280×800, centred, a red status strip above it saying what step it is on). In it is a **second Omarchy shell** with your real bar layout and the theme's wallpaper, so it looks like your desktop, with only this app's plugin loaded.
+- **Your mouse and keyboard cannot reach it.** A transparent shield window covers the nested window (your clicks and hovers land on the shield and do nothing, with a "forbidden" pointer), and the window is never given the keyboard. The tour itself is driven over the nested session's own Wayland socket: a *virtual pointer* (`scripts/nested/vptr`, a small C client built for each run) and a *virtual keyboard* (`wtype`). Nothing it does moves your pointer or types into your windows, and you can carry on working in other windows, though not in the nested one.
+- **It changes nothing of yours.** The nested session has a **sandbox home** with *copies* of what the tour file lists, a minimal `shell.json` that loads only this plugin (linked to your checkout, so it shows the code you are working on), and read-only links to your themes. Settings, apps and files the tour changes are the sandbox's copies, thrown away at the end. `tour_restore` is not run, and no shell restart is needed.
+- **Nothing is left behind.** At the end everything the nested session started (its compositor, shell, its own D-Bus, file watchers) is stopped, and the window closes. The nested session has a D-Bus of its own that starts nothing by itself, so it does not launch portals that would crash and make Omarchy show you a crash notice.
+
+### Extra requirements
+
+`Hyprland` (you are in it), `dbus-run-session`, `wtype`, and `gcc`, `wayland-scanner` and `pkg-config` with the Wayland client library (to build the pointer client; Arch: `wayland`, `wayland-protocols`, `gcc`). The monitor needs about 1000 pixels of height for the window plus its status strip (the nested window is 1280×800 and sits 190 pixels from the top). The recorder checks and says what is missing.
+
+### What a tour file adds for `--nested`
+
+| Variable / function | Meaning |
+|---|---|
+| `TOUR_PLUGIN_ID` | **Required.** The plugin's id, to load in the sandbox. |
+| `TOUR_SANDBOX_COPY=(path …)` | Paths under `$HOME` to *copy* into the sandbox, the data the tour changes (e.g. `.local/share/startappimage`). |
+| `TOUR_SANDBOX_LINK=(path …)` | Paths under `$HOME` to *link* read-only (e.g. icons). |
+| `tour_sandbox DIR` | Optional. Runs with the sandbox home to adjust the copies, e.g. give an app its own copy of a file that the tour will overwrite. |
+| `TOUR_BACKDROP=plain` | Put the flat `TOUR_BG` colour over the wallpaper, as the virtual monitor mode does. Default: the theme's wallpaper. |
+
+Differences in a tour file:
+
+- **`$HOME` is the sandbox** while `tour_prepare`, `tour_setup` and `tour_play` run, and `omarchy-shell`, `hyprctl` and `grim` act on the nested session. A tour file therefore has to work out paths when it uses them (`$HOME/…` inside a function), not when the file loads, or it will point at your real files. `tour_requires` still runs with your real home, before the sandbox exists.
+- **`key` is not available**: use `esc` and `typed`. (`wtype` types text and presses named keys; `esc` is Escape.)
+- **Coordinates** are the nested monitor's: `0,0` at its top-left, 1280×800. The bar is the real one, so it is as tall as yours.
+
+### What I know does not work or is untested
+
+- A first run builds the pointer client; if the build fails the recorder stops with that message.
+- Several monitors: the window and the status strip go on the monitor that was focused when you started. Not tested with more than one.
+- The nested session is Hyprland-in-Hyprland. A compositor that is not Hyprland, or a Hyprland that changes its Lua configuration API, will need changes in `scripts/nested/session.sh`.
+- **Open issue, default mode:** a virtual-monitor run started right after a `--nested` run has sometimes recorded nothing (the app's window did not open; running again worked). The virtual-monitor code did not change and two virtual runs in a row are fine, but I have not found the cause. If you see a ~30 KB GIF, run it again.
+- In the install card the sandbox's home folder shows as its full path (`/home/you/Applications`) instead of `~/Applications`, because `$HOME` differs.
 
 ## Using it in another Start app
 

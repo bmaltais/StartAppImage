@@ -18,7 +18,7 @@
 | `bin/startappimage` | The command line: install, list, update, remove, settings. It is the only part that touches files |
 | `assets/` | The launcher icon |
 | `screenshots/`, `preview.png` | Images used by the README and the plugin preview; retake them with `scripts/screenshots.sh`, then `scripts/preview.sh` |
-| `scripts/tour.sh`, `scripts/tour-banner.qml`, `scripts/tours/` | The tour recorder, and this app's tour. `screenshots/hero.gif` (the GIF at the top of the README) is retaken with `scripts/hero.sh --install` when a step of the tour changes. The recorder is app-agnostic: another Start app supplies its own tour file. See `docs/recording-tours.md` |
+| `scripts/tour.sh`, `scripts/tour-banner.qml`, `scripts/nested/`, `scripts/tours/` | The tour recorder, and this app's tour. `screenshots/hero.gif` (the GIF at the top of the README) is retaken with `scripts/hero.sh --install` when a step of the tour changes. The recorder is app-agnostic: another Start app supplies its own tour file. See `docs/recording-tours.md` |
 | `docs/ui-standards.md` | How the UI looks and behaves, and why. Read it before changing the UI, and update it when a design decision changes |
 
 The QML never edits files itself: it asks `bin/startappimage` and reads its JSON (`list --json`, `info`, `config`, `locations`, `integration`, `check --json`).
