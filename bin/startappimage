@@ -34,6 +34,8 @@ Usage: startappimage <command> [args]
                                             Change an app's settings
   setup [--launcher B] [--handler B] [--cli B] [--check-hours N]
                                             Desktop integration and how often updates are checked (0 = never)
+  window [--size WxH] [--offset X,Y] [--reset]
+                                            The manager's remembered size and place (no option prints them)
   resolve <link|owner/repo>                 JSON: what an update source points at (repo, tag, asset)
   list [--json]                             List installed AppImages
   update [name]                             Update one or all (github-sourced) AppImages
@@ -689,12 +691,32 @@ cmd_unregister() {
   echo "Unregistered: AppImage files no longer open with StartAppImage"
 }
 
+# window [--size WxH] [--offset X,Y] [--reset]
+# The manager window's size and its offset from the screen centre. No option prints them as JSON.
+cmd_window() {
+  need jq
+  while (( $# )); do
+    case $1 in
+      --size) [[ ${2:-} =~ ^[0-9]+x[0-9]+$ ]] || die "window: --size takes WIDTHxHEIGHT"
+        cfg_set WIN_W "${2%x*}"; cfg_set WIN_H "${2#*x}"; shift 2 ;;
+      --offset) [[ ${2:-} =~ ^-?[0-9]+,-?[0-9]+$ ]] || die "window: --offset takes X,Y"
+        cfg_set WIN_X "${2%,*}"; cfg_set WIN_Y "${2#*,}"; shift 2 ;;
+      --reset) for k in WIN_W WIN_H WIN_X WIN_Y; do cfg_set "$k" ""; done; shift ;;
+      *) die "window: unknown option $1" ;;
+    esac
+  done
+  local k v out=()
+  for k in WIN_W WIN_H WIN_X WIN_Y; do v=$(cfg_get "$k"); [[ $v =~ ^-?[0-9]+$ ]] || v=0; out+=("$v"); done
+  jq -n --argjson w "${out[0]}" --argjson h "${out[1]}" --argjson x "${out[2]}" --argjson y "${out[3]}" '{w:$w, h:$h, x:$x, y:$y}'
+}
+
 case "${1:-help}" in
   open) shift; cmd_open "$@" ;;
   ui) omarchy-shell "$PLUGIN_ID" open || die "the StartAppImage plugin is not running (omarchy plugin enable $PLUGIN_ID)" ;;
   info) shift; cmd_info "$@" ;;
   locations) cmd_locations ;;
   resolve) shift; cmd_resolve "$@" ;;
+  window) shift; cmd_window "$@" ;;
   config) shift; cmd_config "$@" ;;
   set) shift; cmd_set "$@" ;;
   run) shift; cmd_run "$@" ;;

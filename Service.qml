@@ -351,6 +351,23 @@ Item {
     }
   }
 
+  // The size and place the manager was last left at.
+  Process {
+    running: true
+    command: [root.cli, "window"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        try {
+          var w = JSON.parse(text)
+          win.sizeW = w.w > 0 ? w.w : 0
+          win.sizeH = w.h > 0 ? w.h : 0
+          win.dragX = w.x
+          win.dragY = w.y
+        } catch (e) {}
+      }
+    }
+  }
+
   Process {
     id: resolveProc
     property string asked: ""
@@ -499,7 +516,19 @@ Item {
     // the centre, so the card stays where it was put when its size changes between views.
     property real dragX: 0
     property real dragY: 0
-    onVisibleChanged: if (visible) { win.dragX = 0; win.dragY = 0 }
+    // Where the card was last left is remembered across restarts (see `startappimage window`);
+    // opening it again puts it back, kept on the screen in case the screen has changed.
+    onVisibleChanged: if (visible) win.moveBy(0, 0)
+
+    function saveWindow(withSize) {
+      var args = [root.cli, "window", "--offset", Math.round(win.dragX) + "," + Math.round(win.dragY)]
+      if (withSize && win.sizeW > 0) args.push("--size", Math.round(win.sizeW) + "x" + Math.round(win.sizeH))
+      Quickshell.execDetached(args)
+    }
+    function resetWindow() {
+      win.sizeW = 0; win.sizeH = 0; win.dragX = 0; win.dragY = 0
+      Quickshell.execDetached([root.cli, "window", "--reset"])
+    }
     // The manager can be resized from its bottom-right corner. 0 means the default size;
     // a chosen size is kept until the shell restarts.
     property real sizeW: 0
@@ -575,6 +604,7 @@ Item {
         onPositionChanged: function (mouse) {
           if (pressed) win.moveBy(mouse.x - pressX, mouse.y - pressY)
         }
+        onReleased: win.saveWindow(false)
       }
 
       ManagerView {
@@ -623,6 +653,8 @@ Item {
         onPositionChanged: function (mouse) {
           if (pressed) win.resizeBy(mouse.x - pressX, mouse.y - pressY)
         }
+        onReleased: win.saveWindow(true)
+        onDoubleClicked: win.resetWindow()
         Repeater {
           model: [0, 1]
           Rectangle {
