@@ -168,13 +168,15 @@ Item {
       anchors.right: parent.right
       spacing: Style.space(2)
 
+      // The models are counts, not the arrays: when what a page says changes (a note, a hint),
+      // the rows stay where they are, so a text box being typed into is not rebuilt.
       Repeater {
-        model: win.pages
+        model: win.pages.length
 
         delegate: Rectangle {
           id: nav
-          required property var modelData
           required property int index
+          readonly property var pageData: win.pages[nav.index] || ({ title: "" })
           readonly property bool current: !win.searching && win.page === nav.index
           width: parent.width
           height: Style.space(38)
@@ -197,7 +199,7 @@ Item {
             anchors.left: parent.left
             anchors.leftMargin: Style.space(16)
             anchors.verticalCenter: parent.verticalCenter
-            text: nav.modelData.title
+            text: nav.pageData.title
             color: Color.foreground
             font.family: Style.font.family
             font.pixelSize: Style.font.body
@@ -262,11 +264,12 @@ Item {
       }
 
       Repeater {
-        model: win.shownGroups
+        model: win.shownGroups.length
 
         delegate: Column {
           id: group
-          required property var modelData
+          required property int index
+          readonly property var groupData: win.shownGroups[group.index] || ({ title: "", fields: [] })
           width: rows.width
 
           // Search results come from several pages: say which.
@@ -274,7 +277,7 @@ Item {
             visible: win.searching
             topPadding: Style.spacing.md
             bottomPadding: Style.spacing.xs
-            text: group.modelData.title
+            text: group.groupData.title
             color: Util.alpha(Color.foreground, 0.7)
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
@@ -282,12 +285,12 @@ Item {
           }
 
           Repeater {
-            model: group.modelData.fields
+            model: group.groupData.fields.length
 
             delegate: Item {
               id: row
-              required property var modelData
-              readonly property var field: row.modelData
+              required property int index
+              readonly property var field: group.groupData.fields[row.index] || ({ key: "", type: "bool", label: "" })
               readonly property var value: win.values[row.field.key]
               readonly property bool live: !row.field.disabled
               readonly property bool stacked: row.field.type === "text" || row.field.stacked === true
