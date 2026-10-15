@@ -14,7 +14,7 @@ Single-context: one `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agen
 
 ## Testing
 
-- **`scripts/dev`**: test every UI change in the nested test session, out of reach of the user's pointer and keyboard. `scripts/dev up`, then `open`, `shot FILE` (look at it), `click PX PY`, `type TEXT`, `key NAME`, `errors` (0 = clean). After an edit, `scripts/dev reload` (4 s, loads uncommitted files). Finish with `scripts/dev down`. `scripts/dev --help` lists the rest.
+- **`scripts/dev`**: test every UI change in the nested test session, out of reach of the user's pointer and keyboard. `scripts/dev up`, then `open`, `shot FILE` (look at it), `click PX PY`, `type TEXT`, `key NAME`, `errors` (0 = clean). After an edit, `scripts/dev reload` (4 s, loads uncommitted files). Finish with `scripts/dev down`. `scripts/dev --help` lists the rest. The session runs behind a guard that refuses power commands, so a click on one there does nothing.
 - **`scripts/check.sh`**: lint, qmllint, manifest. Runs in the pre-commit hook (`git config core.hooksPath .githooks`); commits go on a branch, never `main`.
 - **`scripts/reload`, `scripts/pointer.sh`**: the user's real shell and pointer. Use them when the user asks to see it there; ask first.
 - Full guide, with `scripts/sheet` and what went wrong before: `docs/testing.md`.
@@ -27,4 +27,4 @@ Reference for the settings window: StartBar, `~/.config/omarchy/plugins/io.githu
 
 ## Recorder
 
-`docs/recording-tours.md` before changing `scripts/tour.sh`, `scripts/tours/`, `scripts/tour-banner.qml` or `scripts/nested/`.
+`docs/recording-tours.md` before changing `scripts/tours/` or `devkit.conf`. The session and recorder themselves are the shared devkit's (`scripts/devkit`, a git subtree of `bmaltais/omarchy-plugin-devkit`): fix a bug there in that repository and `git subtree pull`, do not edit the copy here.
