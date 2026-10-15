@@ -1,0 +1,16 @@
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The QML and manifest checks in scripts/check.sh need Qt and Omarchy, which this runner does not have;
+      # they run in the pre-commit hook. Shell scripts need only shellcheck, which the runner ships.
+      - run: scripts/lint-sh.sh

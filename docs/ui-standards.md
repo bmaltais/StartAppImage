@@ -121,6 +121,7 @@ All are inline components or small files in this repo and use only theme tokens.
 
 | Control | Look | Used for |
 |---|---|---|
+| 2026-10-15 | UI changes are tested in a nested session (`scripts/dev`), not on the real desktop | Clicks and restarts on the real shell moved the maintainer's pointer and typed into their windows; see [testing.md](testing.md) |
 | **Switch** | 42 × 24 pill; accent when on, 25% foreground when off; round knob in the menu background, 3 inset; the knob slides 100 ms, but not while the page is first shown | on/off settings |
 | **Choice** | Row of segments 28 high, 2 apart; selected is accent-filled with menu-background text, others 8% foreground; caption size. With many or long options (`stacked`) the segments wrap across the full width under the label, 6 apart | one of a few or several options |
 | **Chip** | Bordered rounded box; selected has a 18% accent fill and an accent border | picking a folder, Shown/Hidden in the per-app card |
@@ -160,24 +161,11 @@ Optional, off by default, switched in the settings window. It is the download-ar
 
 ## Verifying a UI change
 
-A change is not done until it has been seen working.
+A change is done once it has been seen working in the test session: see [testing.md](testing.md) (`scripts/dev`). Retake the README screenshots with `scripts/screenshots.sh` when the look changes, and the tour when a step of it changes ([recording-tours.md](recording-tours.md)).
 
-1. Commit and push, then `git pull` in the installed plugin (`~/.config/omarchy/plugins/io.github.bmaltais.startappimage`).
-2. Run `omarchy-restart-shell`. Plugin reload and `omarchy plugin disable/enable` do **not** load new QML.
-3. Open the window (`omarchy-shell io.github.bmaltais.startappimage open` or `setup`; both toggle or show) and take a screenshot with `grim`.
-4. Click the real controls with `ydotool` and screenshot again. On a monitor that does not start at x = 0, `ydotool mousemove --absolute` lands at twice the coordinate you give plus the monitor's origin, so check with `hyprctl cursorpos`. Screenshot before each click: a click outside a card closes it.
-5. Read the shell log for QML errors: `journalctl --user --since -1min -o cat`.
-6. Retake the README screenshots with `scripts/screenshots.sh` when the look changes, retake the tour with `scripts/hero.sh --install` when a step of it changes (see [Recording the tour](#recording-the-tour)), then rebuild `preview.png` (the 1600 by 900 title image) with `scripts/preview.sh`. Both put a plain backdrop behind the cards. Set the manager to about 690 by 696 first (`startappimage window --size 690x696 --offset 0,0`, then restart the shell) so the hero shows every app without a cut-off row, and restore your own window values afterwards.
+## The README tour
 
-## Recording the tour
-
-The GIF at the top of the README is a short story of using the app, recorded by `scripts/tour.sh`, a recorder that is **not specific to StartAppImage** (the full guide, with a worked example and troubleshooting, is [recording-tours.md](recording-tours.md)): it films a temporary virtual monitor frame by frame (so your own screen is left alone), puts a plain backdrop on it, clicks through the app with the real pointer and keyboard, adds a caption for each step and writes the GIF. Each app supplies a **tour file** that says what to do; this app's is `scripts/tours/hero.sh`. `scripts/tour.sh TOURFILE [--install]` runs one, and `scripts/hero.sh` is the shortcut for ours.
-
-- **A tour file** is a bash file that sets `TOUR_TITLE` (the app's name), `TOUR_OUT` (the GIF's path), `TOUR_LAYER` (the app window's layer-shell name, so keys and typing are only sent while it is up) and optionally `TOUR_STEPS`, `TOUR_SIZE`, `TOUR_BG` and `TOUR_RESTART_SHELL`; and defines `tour_play` (the steps, using `cap`, `glide`, `click`, `drag`, `typed`, `esc`, `wait_until`) plus, as needed, `tour_requires`, `tour_prepare`, `tour_setup` and `tour_restore`. The header of `scripts/tour.sh` documents the contract; the recorder does the rest, including putting things back if it is interrupted.
-- **Story, not a feature list.** Each step is one thing a person does, with a caption that says it in plain words. Ours: double-click an AppImage and see what it is; the manager with an update waiting; one click to update; point an app at its GitHub releases; settings that apply at once; resize and move the window and find it where it was left. About a minute, 10 frames a second, 1200 px wide, a few MB.
-- **Asks first, then says so while it runs.** A red window with white text opens in the middle of your real screen and asks you to confirm with **Proceed** or **Cancel** (Esc also cancels; nothing is touched if you cancel). While it records, the same window stays up saying not to touch the mouse or keyboard, with the step it is on, and turns green when the tour is done. The pointer is on the virtual monitor and typing goes there, which is why. (Notifications cannot be used for this: they appear on the focused monitor, the virtual one, and would end up in the GIF.)
-- **It changes things and puts them back**: whatever the tour's `tour_prepare` saves and `tour_restore` restores. Ours resets the windows' saved size and place, makes one app look a version behind so it can be updated, changes the check interval and switches the bar icon off and on.
-- **Keep the tour honest.** It uses the real app, so a step that changes (a button moves, a label is renamed) breaks the tour's clicks: retake and look at the GIF before committing it.
+`screenshots/hero.avif` is recorded by an app-agnostic recorder. Guide, tour-file rules and the recorder's decision log: [recording-tours.md](recording-tours.md).
 
 ## Shared UI code
 
@@ -189,15 +177,7 @@ Newest first. One line each: what was decided, and why.
 
 | Date | Decision | Why |
 |---|---|---|
-| 2026-10-15 | The README hero sits in a `<picture>`, so GitHub does not turn it into a link to the image file | A click on the animation opened its file page, which is not what a viewer expects of a demo. GitHub links a bare `<img>`; not one in a `<picture>` |
-| 2026-10-15 | The README hero is an animated AVIF (`screenshots/hero.avif`, about 0.4 MB at crf 40), not a GIF (3.3 MB), with no fallback | It plays in the browsers we use (checked on the maintainer's Omarchy browser) and on GitHub, and is eight times smaller. A `.gif` result is still one setting away for places that cannot show AVIF |
-| 2026-10-15 | Tour captions stay up long enough to read (150 words a minute plus a moment, never under 2.5 s), and the pointer waits for the average reading time (238 wpm) before it moves after a new caption | Humans read slowly, and a caption that vanishes or a pointer that moves while it is being read makes the tour hard to follow |
 | 2026-10-15 | After an update succeeds the app is dropped from the "updates waiting" list at once | The row flashed "Update available" again for about a second until the next check finished, which looked like the click had not worked |
-| 2026-10-15 | The tour recorder moves and types like a person (Fitts's-law timing, minimum-jerk speed, a curved route with correlated wobble, rare overshoot, log-normal key gaps), from published research and open-source emulators; the red strip's size and the nested window's place are computed from one set of numbers | A pointer that glides in straight lines and keys at fixed intervals look fake; the strip had been covering the top of the window |
-| 2026-10-15 | The nested recording window has a Cancel button, and the screen is given back as soon as filming stops, with "Recording finished, building the GIF" instead of looking stuck | Someone watching must be able to stop it if something goes wrong, and about 30 s of GIF building looked like a hang |
-| 2026-10-15 | The tour recorder gets a `--nested` mode: the tour runs in a second Hyprland shown as a window, in a sandbox, driven over its own Wayland socket | You can watch it, your mouse and keyboard cannot disturb it, and it never changes your real settings or files. It is opt-in until it has been used on more setups |
-| 2026-10-15 | The tour recorder asks for confirmation in a centred red window (Proceed / Cancel), then shows its progress in it, instead of a flickering terminal banner | A recording takes over the pointer and keyboard; people must agree to it first and be able to see it is on |
-| 2026-10-15 | The README leads with a recorded tour (`screenshots/hero.avif`, an animated AVIF) made by an app-agnostic recorder that reads a per-app tour file | A still shows a look, not how the app is used; one recorder keeps every Start app's tour alike |
 | 2026-10-15 | Settings windows say "SETTINGS" in small caps under their title | Nothing in the window said what it was for; the title-over-small-caps pattern is the one the manager already uses |
 | 2026-10-15 | One app's settings use the same `SettingsWindow` as the main settings: pages on the left, applied instantly, floating over the manager, sharing its size and place | Two different looks for "settings" felt inconsistent; one component keeps them identical and is what will move into the shared UI module |
 | 2026-10-15 | Settings rows keep their place when the data behind them changes (the models are counts, not arrays) | A live preview rebuilt the list on each keystroke and threw away the text box being typed into |

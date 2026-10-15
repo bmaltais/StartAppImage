@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# reload: run this checkout's code in the live Omarchy shell, and say what the plugin logs.
+#
+#   scripts/reload [open | setup | settings APP_ID] [--shot FILE]
+#   scripts/reload --check
+#
+#   (nothing)      sync the installed plugin to this checkout's pushed HEAD, restart the shell, report errors
+#   open           then open the manager (closed first, so the toggle cannot hide it)
+#   setup          then open the settings window
+#   settings ID    then open that app's settings (ID as in `startappimage list`)
+#   --shot FILE    then screenshot the focused monitor to FILE (the path is printed)
+#   --check        read-only: say whether the installed plugin matches this checkout, change nothing
+#
+# New QML only loads after a full shell restart (`omarchy plugin disable` and `enable`, and the shell's "Local plugin changed,
+# reloading" message, leave the old code running), and the installed plugin is a separate git clone, so a change has to be
+# pushed before it can be loaded: commit and push the branch first. The bar blinks during the restart.
+#
+# Prints one line, then at most 8 error lines:
+#   reload ok human-input@5e69770 restart 6.1s qml-errors 0
+#     err: <a line the plugin logged, with the shell's usual noise removed>
+# Exits 1 on a sync or restart failure, a window that did not open, or any plugin error.
+set -euo pipefail
+
+ID=io.github.bmaltais.startappimage
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+INSTALLED=$HOME/.config/omarchy/plugins/$ID
+window="" app="" shot="" check=false
+
+die() { echo "reload: $*" >&2; exit 1; }
+while (($#)); do
+  case $1 in
+    open | setup) window=$1; shift ;;
+    settings) window=settings; app=${2:-}; [[ -n $app ]] || die "settings needs an app id"; shift 2 ;;
+    --shot) shot=${2:-}; [[ -n $shot ]] || die "--shot needs a file"; shift 2 ;;
+    --check) check=true; shift ;;
+    -h | --help) sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
+    *) die "unknown argument $1 (see --help)" ;;
+  esac
+done
+
+branch=$(git -C "$REPO" branch --show-current)
+head=$(git -C "$REPO" rev-parse --short HEAD)
+dirty=$(git -C "$REPO" status --porcelain | wc -l)
+[[ -d $INSTALLED ]] || die "the plugin is not installed at $INSTALLED"
+
+# Sync only when the installed clone is not already at this commit, and never in --check or for a linked checkout.
+if [[ ! -L $INSTALLED ]] && ! $check && [[ $(git -C "$INSTALLED" rev-parse --short HEAD) != "$head" ]]; then
+  [[ -n $branch ]] || die "this checkout is on a detached HEAD"
+  git -C "$INSTALLED" fetch -q
+  git -C "$INSTALLED" checkout -q "$branch" 2>/dev/null || git -C "$INSTALLED" checkout -q -b "$branch" "origin/$branch" 2>/dev/null ||
+    die "the installed plugin cannot switch to $branch: push the branch first"
+  git -C "$INSTALLED" merge -q --ff-only "origin/$branch" 2>/dev/null || true
+fi
+ihead=$(git -C "$INSTALLED" rev-parse --short HEAD)
+ibranch=$(git -C "$INSTALLED" branch --show-current)
+if $check; then
+  [[ $ihead == "$head" ]] && echo "reload check: in sync, $branch@$head" || echo "reload check: installed is $ibranch@$ihead, this checkout is $branch@$head"
+  ((dirty == 0)) || echo "reload check: $dirty uncommitted files here are not in any clone"
+  [[ $ihead == "$head" ]]; exit
+fi
+[[ $ihead == "$head" ]] || die "installed plugin is at $ibranch@$ihead, this checkout is at $branch@$head: push first"
+((dirty == 0)) || echo "reload: note, $dirty uncommitted files here are not in the shell" >&2
+
+since=$(date '+%Y-%m-%d %H:%M:%S')
+t0=$(date +%s.%N)
+omarchy-restart-shell >/dev/null 2>&1 || die "omarchy-restart-shell failed"
+up=false
+for _ in $(seq 1 60); do
+  [[ $(omarchy-shell shell ping 2>/dev/null) == ok ]] && { up=true; break; }
+  sleep 0.5
+done
+$up || die "the shell did not answer after the restart"
+sleep 2
+took=$(awk -v a="$t0" -v b="$(date +%s.%N)" 'BEGIN { printf "%.1f", b - a }')
+
+opened=true
+case $window in
+  open)
+    omarchy-shell -q "$ID" close || true
+    sleep 0.4
+    omarchy-shell "$ID" open >/dev/null
+    ;;
+  setup) omarchy-shell "$ID" setup >/dev/null ;;
+  settings) omarchy-shell "$ID" settings "$app" >/dev/null ;;
+esac
+if [[ -n $window ]]; then
+  sleep 2
+  hyprctl layers -j | jq -e '[.. | .namespace? // empty] | any(. == "omarchy-startappimage")' >/dev/null || opened=false
+fi
+
+# What the plugin logged since the restart, without the shell's standing noise.
+errors=$(journalctl --user --since "$since" --no-pager -o cat 2>/dev/null |
+  sed 's/\x1b\[[0-9;]*m//g' |
+  grep -E "io\.github\.bmaltais\.startappimage" |
+  grep -E "WARN|ERROR|ReferenceError|TypeError|Unable to assign|Cannot (assign|read|call)|is not a type|is not defined|failed|Read of" |
+  grep -vE "recursive rearrange|Local plugin changed|qt\.svg|IpcHandler|ShellIpc|Handler was registered|qmlscanner|DEBUG" |
+  sort -u || true)
+count=0
+[[ -z $errors ]] || count=$(wc -l <<<"$errors")
+
+state=ok
+{ ((count > 0)) || ! $opened; } && state=FAILED
+echo "reload $state $branch@$head restart ${took}s qml-errors $count${window:+ window $window $($opened && echo up || echo NOT-UP)}"
+if [[ -n $shot ]]; then
+  mon=$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name')
+  grim -o "$mon" "$shot" && echo "  shot $shot"
+fi
+if ((count > 0)); then head -8 <<<"$errors" | cut -c1-220 | sed 's/^/  err: /'; fi
+[[ $state == ok ]]

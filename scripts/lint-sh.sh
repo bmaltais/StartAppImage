@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Syntax-check every shell script of the project, and run shellcheck over them (rules in ../.shellcheckrc).
+# `bash -n` catches a script that is broken before it is run against the live shell; shellcheck catches one that is wrong.
+#
+#   scripts/lint-sh.sh
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+files=(bin/startappimage scripts/*.sh scripts/reload scripts/sheet scripts/nested/*.sh scripts/tours/*.sh .githooks/pre-commit)
+for f in "${files[@]}"; do
+  bash -n "$f"
+done
+if command -v shellcheck >/dev/null; then
+  shellcheck "${files[@]}"
+else
+  echo "lint-sh: shellcheck is not installed, only the syntax was checked"
+fi
+echo "lint-sh: ok, ${#files[@]} scripts"
