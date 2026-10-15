@@ -82,12 +82,12 @@ tour_play() {
   glide 500 515; sleep 0.5
   glide 706 515; sleep 0.7
   glide 820 515; sleep 1.6
-  esc; sleep 0.8
+  esc; sleep 0.1
 
   # 2. The manager: everything installed, with an update waiting.
   cap "Everything you installed, in one place. Updates at a glance"
   omarchy-shell $ID open
-  sleep 1.4
+  sleep 1.0
   glide 640 330; glide 640 480; sleep 0.4
   glide 640 300; sleep 2.6
 
@@ -128,8 +128,9 @@ tour_play() {
   glide 760 142; sleep 0.4
   drag -170 -10
   sleep 1.0
-  esc; sleep 1.0
+  # Closed and straight away open again, so the bare desktop is on screen only as long as the window takes to appear.
+  esc; sleep 0.15
   omarchy-shell $ID open
-  sleep 2.6
-  esc; sleep 0.35
+  # Ends with the window up, so the GIF does not finish (and start over) on a bare desktop.
+  sleep 3.0
 }
