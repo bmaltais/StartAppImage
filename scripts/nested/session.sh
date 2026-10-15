@@ -80,8 +80,35 @@ sandbox_build() {
     mkdir -p "$h/$(dirname "$rel")"
     ln -s "$HOME/$rel" "$h/$rel"
   done
+  sandbox_repoint "$h" || return 1
   if declare -F tour_sandbox >/dev/null; then tour_sandbox "$h"; fi
   "$HERE/nested/build.sh" "$NEST_BIN" >/dev/null || { echo "tour: could not build the virtual pointer client" >&2; return 1; }
+}
+
+# The copied manifests and launcher entries name the AppImages by absolute path in your real home. Left like that, a change made
+# in the session (a rename, hiding an app, moving it) would be written to your real files. So each AppImage a manifest names is
+# copied into the sandbox (a reflink where the filesystem has them, so it costs nothing there) and the EXEC=, DESKTOP= and Exec=
+# paths are pointed at the copies. ICON= is left alone: the icons are a read-only link to the real ones, and removing an app
+# refuses a path outside the sandbox's home, which a rewritten path would no longer be.
+sandbox_repoint() {
+  local h=$1 f real copy leaks
+  for f in "$h"/.local/share/startappimage/*.env; do
+    [[ -f $f ]] || continue
+    real=$(sed -n 's/^EXEC=//p' "$f" | head -n1)
+    [[ $real == "$HOME"/* && -f $real ]] || continue
+    copy=$h/${real#"$HOME"/}
+    mkdir -p "$(dirname "$copy")"
+    [[ -e $copy ]] || cp --reflink=auto "$real" "$copy"
+  done
+  for f in "$h"/.local/share/startappimage/*.env; do
+    [[ -f $f ]] && sed -i "s#^\(EXEC\|DESKTOP\)=$HOME/#\1=$h/#" "$f"
+  done
+  for f in "$h"/.local/share/applications/*.desktop; do
+    [[ -f $f ]] && sed -i "s#^Exec=\(\"\?\)$HOME/#Exec=\1$h/#" "$f"
+  done
+  # A change that still points at your real files must stop the session, not slip through.
+  leaks=$(grep -lE "^(EXEC|DESKTOP)=$HOME/" "$h"/.local/share/startappimage/*.env 2>/dev/null || true)
+  [[ -z $leaks ]] || { echo "nested: a sandbox manifest still names a real file: $leaks" >&2; return 1; }
 }
 
 # From here on every command the tour runs, and the recorder's own helpers, act in the sandbox.

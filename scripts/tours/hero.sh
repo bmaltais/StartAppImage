@@ -36,20 +36,6 @@ tour_requires() {
   [[ -n $APPIMG ]] || { echo "tour: no ~/Applications/pdfcraft-*.AppImage to open" >&2; return 1; }
 }
 
-# Called with the sandbox home: give ArtCraft a copy of its AppImage there, and point its manifest and launcher entry at it.
-tour_sandbox() {
-  local h=$1 env=$1/.local/share/startappimage/artcraft-launcher.env real copy desktop
-  real=$(sed -n 's/^EXEC=//p' "$env")
-  [[ -f $real ]] || return 0
-  mkdir -p "$h/Applications"
-  copy=$h/Applications/$(basename "$real")
-  cp "$real" "$copy"
-  sed -i "s#^EXEC=.*#EXEC=$copy#" "$env"
-  desktop=$(sed -n 's/^DESKTOP=//p' "$env")
-  desktop=$h/.local/share/applications/$(basename "$desktop")
-  [[ -f $desktop ]] && sed -i "s#$real#$copy#g" "$desktop"
-}
-
 tour_prepare() {
   # Both windows start where the defaults put them.
   "$CLI" window --reset >/dev/null
