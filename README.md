@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="StartAppImage's manager listing installed AppImages, with search, per-app settings and uninstall" src="screenshots/manager.png" width="620" />
+  <img alt="A tour of StartAppImage: the install card for a double-clicked AppImage, the manager with an update waiting and one click to update it, pointing an app at its GitHub releases with a live check of the link, settings that apply as you change them, and resizing and moving the window" src="screenshots/hero.gif" width="900" />
 </p>
 
 <h1 align="center">StartAppImage</h1>
@@ -61,6 +61,8 @@ Opening an `.AppImage` from your file manager shows a small card instead of runn
 `Enter` takes the main action and `Esc` closes the card.
 
 ### The manager
+
+<img src="screenshots/manager.png" alt="StartAppImage's manager listing installed AppImages, with search, per-app settings and uninstall" width="620">
 
 Open **StartAppImage** from the app launcher, or bind a key to it (see [Commands](#commands)).
 

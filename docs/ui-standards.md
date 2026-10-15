@@ -167,11 +167,21 @@ A change is not done until it has been seen working.
 3. Open the window (`omarchy-shell io.github.bmaltais.startappimage open` or `setup`; both toggle or show) and take a screenshot with `grim`.
 4. Click the real controls with `ydotool` and screenshot again. On a monitor that does not start at x = 0, `ydotool mousemove --absolute` lands at twice the coordinate you give plus the monitor's origin, so check with `hyprctl cursorpos`. Screenshot before each click: a click outside a card closes it.
 5. Read the shell log for QML errors: `journalctl --user --since -1min -o cat`.
-6. Retake the README screenshots with `scripts/screenshots.sh` when the look changes, then rebuild `preview.png` (the 1600 by 900 title image) with `scripts/preview.sh`. Both put a plain backdrop behind the cards. Set the manager to about 690 by 696 first (`startappimage window --size 690x696 --offset 0,0`, then restart the shell) so the hero shows every app without a cut-off row, and restore your own window values afterwards.
+6. Retake the README screenshots with `scripts/screenshots.sh` when the look changes, retake the tour with `scripts/hero.sh --install` when a step of it changes (see [Recording the tour](#recording-the-tour)), then rebuild `preview.png` (the 1600 by 900 title image) with `scripts/preview.sh`. Both put a plain backdrop behind the cards. Set the manager to about 690 by 696 first (`startappimage window --size 690x696 --offset 0,0`, then restart the shell) so the hero shows every app without a cut-off row, and restore your own window values afterwards.
+
+## Recording the tour
+
+The GIF at the top of the README is a short story of using the app, recorded by `scripts/tour.sh`, a recorder that is **not specific to StartAppImage**: it films a temporary virtual monitor frame by frame (so your own screen is left alone), puts a plain backdrop on it, clicks through the app with the real pointer and keyboard, adds a caption for each step and writes the GIF. Each app supplies a **tour file** that says what to do; this app's is `scripts/tours/hero.sh`. `scripts/tour.sh TOURFILE [--install]` runs one, and `scripts/hero.sh` is the shortcut for ours.
+
+- **A tour file** is a bash file that sets `TOUR_TITLE` (the app's name), `TOUR_OUT` (the GIF's path), `TOUR_LAYER` (the app window's layer-shell name, so keys and typing are only sent while it is up) and optionally `TOUR_STEPS`, `TOUR_SIZE`, `TOUR_BG` and `TOUR_RESTART_SHELL`; and defines `tour_play` (the steps, using `cap`, `glide`, `click`, `drag`, `typed`, `esc`, `wait_until`) plus, as needed, `tour_requires`, `tour_prepare`, `tour_setup` and `tour_restore`. The header of `scripts/tour.sh` documents the contract; the recorder does the rest, including putting things back if it is interrupted.
+- **Story, not a feature list.** Each step is one thing a person does, with a caption that says it in plain words. Ours: double-click an AppImage and see what it is; the manager with an update waiting; one click to update; point an app at its GitHub releases; settings that apply at once; resize and move the window and find it where it was left. About a minute, 10 frames a second, 1200 px wide, a few MB.
+- **While it runs** the pointer is on the virtual monitor and typing goes there, so a small banner window in the corner of your real screen says to leave the mouse and keyboard alone, with the step it is on. (Notifications cannot be used for this: they appear on the focused monitor, the virtual one, and would end up in the GIF.) A notification says when it is done.
+- **It changes things and puts them back**: whatever the tour's `tour_prepare` saves and `tour_restore` restores. Ours resets the windows' saved size and place, makes one app look a version behind so it can be updated, changes the check interval and switches the bar icon off and on.
+- **Keep the tour honest.** It uses the real app, so a step that changes (a button moves, a label is renamed) breaks the tour's clicks: retake and look at the GIF before committing it.
 
 ## Shared UI code
 
-The controls above, `SettingsWindow` and the drag-and-resize behaviour are meant to be shared by every Start app, so each does not keep its own copy. That is not done yet; the proposal is a shared `StartUI` repository copied into each app (git subtree). Until it exists, this repo is the reference implementation and StartBar's settings window is the reference design.
+The controls above, `SettingsWindow`, the drag-and-resize behaviour and the tour recorder (`scripts/tour.sh`) are meant to be shared by every Start app, so each does not keep its own copy. That is not done yet; the proposal is a shared `StartUI` repository copied into each app (git subtree). Until it exists, this repo is the reference implementation and StartBar's settings window is the reference design.
 
 ## Decision log
 
@@ -179,6 +189,7 @@ Newest first. One line each: what was decided, and why.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-15 | The README leads with a recorded tour (`screenshots/hero.gif`) made by an app-agnostic recorder that reads a per-app tour file | A still shows a look, not how the app is used; one recorder keeps every Start app's tour alike |
 | 2026-10-15 | Settings windows say "SETTINGS" in small caps under their title | Nothing in the window said what it was for; the title-over-small-caps pattern is the one the manager already uses |
 | 2026-10-15 | One app's settings use the same `SettingsWindow` as the main settings: pages on the left, applied instantly, floating over the manager, sharing its size and place | Two different looks for "settings" felt inconsistent; one component keeps them identical and is what will move into the shared UI module |
 | 2026-10-15 | Settings rows keep their place when the data behind them changes (the models are counts, not arrays) | A live preview rebuilt the list on each keystroke and threw away the text box being typed into |
