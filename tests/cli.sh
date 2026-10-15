@@ -149,6 +149,36 @@ t_config_of_an_unknown_app_fails() {
   cli config nothing; refused "not installed: nothing"
 }
 
+t_add_json_reports_the_installed_app_as_one_json_line() {
+  fake_appimage "$HOME/Downloads/Demo.AppImage" "Demo App" 1.2
+  cli add "$HOME/Downloads/Demo.AppImage" --json; ok
+  eq "$(wc -l <<<"$OUT")" 1 "stdout lines"
+  eq "$(jqv '.ok')" true "ok"
+  eq "$(jqv '.id')" demo-app "id"
+  eq "$(jqv '.name')" "Demo App" "name"
+  has "$ERR" "Installing to" "progress is on stderr"
+}
+
+t_add_json_reports_a_failure_as_json_too() {
+  cli add "$HOME/nope.AppImage" --json; [[ $CODE -ne 0 ]] || fail "expected a failure"
+  eq "$(jqv '.ok')" false "ok"
+  has "$(jqv '.error')" "no such file" "error"
+  eq "$ERR" "" "stderr"
+}
+
+t_list_and_config_say_what_the_source_is() {
+  install_demo
+  cli list --json; eq "$(jqv '.[0].sourceKind')" local "kind"; eq "$(jqv '.[0].repo')" "" "repo"
+  cli set demo-app --source foo/bar; ok
+  cli list --json; eq "$(jqv '.[0].sourceKind')" github "kind"; eq "$(jqv '.[0].repo')" foo/bar "repo"
+  cli config demo-app; eq "$(jqv '.sourceKind')" github "kind"; eq "$(jqv '.repo')" foo/bar "repo"
+}
+
+t_an_adopted_app_has_the_external_source_kind() {
+  adopt_demo
+  cli list --json; eq "$(jqv '.[0].sourceKind')" external "kind"
+}
+
 # --- set ----------------------------------------------------------------------
 t_set_changes_name_args_and_hidden() {
   install_demo
@@ -189,6 +219,28 @@ t_set_dir_moves_the_app_and_keeps_the_link() {
 t_set_dir_outside_home_fails() {
   install_demo
   cli set demo-app --dir /opt; refused "inside your home directory"
+}
+
+t_set_json_confirms_a_change() {
+  install_demo
+  cli set demo-app --name Renamed --json; ok
+  eq "$(jqv '.ok')" true "ok"; eq "$(jqv '.id')" demo-app "id"
+}
+
+t_set_json_applies_every_option_like_plain_set() {
+  install_demo
+  cli set demo-app --hidden true --json; ok
+  cli config demo-app; eq "$(jqv '.hidden')" true "hidden"
+}
+
+t_set_json_names_the_field_a_failure_belongs_to() {
+  install_demo
+  cli set demo-app --source "not a repo" --json; [[ $CODE -ne 0 ]] || fail "expected a failure"
+  eq "$(jqv '.ok')" false "ok"; eq "$(jqv '.field')" source "field"
+  has "$(jqv '.error')" "owner/repo" "error"
+  cli set demo-app --dir /opt --json; eq "$(jqv '.field')" dir "field"
+  cli set nothing --name X --json; eq "$(jqv '.field')" "" "field of a general failure"
+  has "$(jqv '.error')" "not installed" "error"
 }
 
 t_set_hidden_takes_true_or_false() {

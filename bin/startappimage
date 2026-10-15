@@ -23,7 +23,20 @@ SVG_ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
 DB_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/startappimage"
 PLUGIN_ID="io.github.bmaltais.startappimage"
 
-die() { echo "startappimage: $*" >&2; exit 1; }
+# With --json (add, set) a failure is one JSON line on stdout, {ok:false, field, error}; field names the setting it was
+# about ("source", "dir", ...) or is empty. DIE_FIELD=source die "..." sets it. Otherwise it is a line on stderr.
+JSON_RESULT=0
+wants_json() { local a; for a in "$@"; do [[ $a != --json ]] || JSON_RESULT=1; done; }
+die() {
+  if [[ $JSON_RESULT == 1 ]] && command -v jq >/dev/null; then
+    jq -nc --arg field "${DIE_FIELD:-}" --arg error "$*" '{ok:false, field:$field, error:$error}'
+  else
+    echo "startappimage: $*" >&2
+  fi
+  exit 1
+}
+# Progress for a person: stdout, or stderr when stdout is reserved for the JSON result.
+say() { if [[ $JSON_RESULT == 1 ]]; then echo "$*" >&2; else echo "$*"; fi; }
 need() { command -v "$1" >/dev/null || die "missing dependency: $1"; }
 
 usage() {
@@ -115,6 +128,9 @@ rec_delete() {
   fi
   refresh_desktop_db
 }
+# How an app is kept up to date: github (repo is owner/repo), url, external (adopted) or local. The SOURCE encoding stays here.
+rec_source_kind() { local s; s=$(db_get "$1" SOURCE); echo "${s%%:*}"; }
+rec_repo() { local s; s=$(db_get "$1" SOURCE); [[ $s != github:* ]] || echo "${s#github:}"; }
 # Where an app's AppImage lives: adopted apps keep theirs where it was found.
 app_exec() { local e; e=$(db_get "$1" EXEC); echo "${e:-$LEGACY_APP_DIR/$1.AppImage}"; }
 
@@ -275,8 +291,10 @@ cmd_run() {
 # --- add -----------------------------------------------------------------------
 cmd_add() {
   local dest="$APP_DIR" remember=0 args=()
+  wants_json "$@"
   while (( $# )); do
     case "$1" in
+      --json) shift ;;
       --dir) [[ $# -ge 2 ]] || die "add: --dir needs a folder"; dest=$2; remember=1; shift 2 ;;
       --dir=*) dest=${1#--dir=}; remember=1; shift ;;
       *) args+=("$1"); shift ;;
@@ -296,7 +314,7 @@ cmd_add() {
       local repo tag url; repo=$(gh_repo "$src")
       IFS=$'\t' read -r tag url < <(gh_latest "$repo")
       [[ -n "$url" ]] || die "no AppImage asset in latest release of $repo"
-      file="$tmp/download.AppImage"; echo "Downloading $url"
+      file="$tmp/download.AppImage"; say "Downloading $url"
       curl -fL --progress-bar -o "$file" "$url"
       version=$tag; source_rec="github:$repo"
       [[ -n "$name" ]] || name=${repo#*/} ;;
@@ -310,7 +328,7 @@ cmd_add() {
   esac
   chmod +x "$file"
 
-  echo "Reading application metadata..."
+  say "Reading application metadata..."
   extract_meta "$file" "$tmp" "$name"
   local display=$M_NAME comment=$M_COMMENT cats=$M_CATS icon_src=$M_ICON
   [[ $version != local || -z "$M_VERSION" ]] || version=$M_VERSION
@@ -319,7 +337,7 @@ cmd_add() {
   local id; id=$(slug "$name")
   [[ -n "$id" ]] || id=$(slug "$(basename "$src" .AppImage)")
   [[ -n "$id" ]] || die "could not derive a name; pass one explicitly"
-  echo "Installing to $dest..."
+  say "Installing to $dest..."
   # Installing again into a different folder moves the app: clear the old copy first.
   if rec_exists "$id" && [[ "$(app_exec "$id")" != "$dest/$id.AppImage" ]]; then
     cmd_remove "$id" >/dev/null
@@ -345,7 +363,8 @@ EOF
   db_write "$id" "$display" "$source_rec" "$version" "EXEC=$dest/$id.AppImage"
   [[ $remember -eq 0 ]] || cfg_set INSTALL_DIR "$dest"
   refresh_desktop_db
-  echo "Installed $display ($id)"
+  if [[ $JSON_RESULT == 1 ]]; then jq -nc --arg id "$id" --arg name "$display" '{ok:true, id:$id, name:$name}'
+  else echo "Installed $display ($id)"; fi
 }
 
 # --- per-app settings --------------------------------------------------------------
@@ -391,12 +410,13 @@ cmd_config() {
   [[ ! -f "$desk" ]] || { grep -q '^NoDisplay=true' "$desk" && hidden=true || true; }
   rec_external "$id" && external=true
   jq -nc --arg id "$id" --arg name "$(db_get "$id" NAME)" --arg path "$exe" --arg dir "$(dirname "$exe")" \
-    --arg args "$([[ -f "$desk" ]] && exec_args "$desk" || true)" --arg source "$src" --arg version "$(db_get "$id" VERSION)" \
+    --arg args "$([[ -f "$desk" ]] && exec_args "$desk" || true)" --arg source "$src" --arg kind "$(rec_source_kind "$id")" --arg repo "$(rec_repo "$id")" --arg version "$(db_get "$id" VERSION)" \
     --argjson hidden "$hidden" --argjson external "$external" \
-    '{id:$id,name:$name,path:$path,dir:$dir,args:$args,source:$source,version:$version,hidden:$hidden,external:$external}'
+    '{id:$id,name:$name,path:$path,dir:$dir,args:$args,source:$source,sourceKind:$kind,repo:$repo,version:$version,hidden:$hidden,external:$external}'
 }
 
 cmd_set() {
+  wants_json "$@"
   [[ $# -ge 1 ]] || die "set: missing name"
   local id; id=$(slug "$1"); shift
   rec_exists "$id" || die "not installed: $id"
@@ -404,6 +424,7 @@ cmd_set() {
   local has_name=0 has_args=0 has_source=0
   while (( $# )); do
     case "$1" in
+      --json) shift ;;
       --dir) [[ $# -ge 2 ]] || die "set: --dir needs a folder"; new_dir=$2; shift 2 ;;
       --name) [[ $# -ge 2 ]] || die "set: --name needs a value"; new_name=$2; has_name=1; shift 2 ;;
       --args) [[ $# -ge 2 ]] || die "set: --args needs a value"; new_args=$2; has_args=1; shift 2 ;;
@@ -417,11 +438,11 @@ cmd_set() {
 
   if [[ -n "$new_dir" ]]; then
     new_dir=${new_dir/#\~/$HOME}; new_dir=${new_dir%/}
-    [[ "$new_dir" == "$HOME"/* ]] || die "the folder must be inside your home directory: $new_dir"
+    [[ "$new_dir" == "$HOME"/* ]] || DIE_FIELD=dir die "the folder must be inside your home directory: $new_dir"
     if [[ "$new_dir" != "$(dirname "$exe")" ]]; then
       local target
       if rec_external "$id"; then target="$new_dir/$(basename "$exe")"; else target="$new_dir/$id.AppImage"; fi
-      [[ ! -e "$target" ]] || die "$target already exists"
+      [[ ! -e "$target" ]] || DIE_FIELD=dir die "$target already exists"
       mkdir -p "$new_dir"
       mv "$exe" "$target"
       rec_external "$id" || ln -sf "$target" "$BIN_DIR/$id"
@@ -440,7 +461,7 @@ cmd_set() {
     if [[ -z "$repo" ]]; then
       if rec_external "$id"; then db_set "$id" SOURCE external; else db_set "$id" SOURCE local; fi
     else
-      [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "the update source must look like owner/repo"
+      [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || DIE_FIELD=source die "the update source must look like owner/repo"
       db_set "$id" SOURCE "github:$repo"
     fi
   fi
@@ -448,10 +469,10 @@ cmd_set() {
     true) desktop_set "$desk" NoDisplay true ;;
     false) desktop_unset "$desk" NoDisplay ;;
     "") ;;
-    *) die "set: --hidden takes true or false" ;;
+    *) DIE_FIELD=hidden die "set: --hidden takes true or false" ;;
   esac
   refresh_desktop_db
-  echo "Saved $id"
+  if [[ $JSON_RESULT == 1 ]]; then jq -nc --arg id "$id" '{ok:true, id:$id}'; else echo "Saved $id"; fi
 }
 
 # --- locations -------------------------------------------------------------------
@@ -492,8 +513,9 @@ cmd_list() {
       icon=$(rec_icon "$id")
       jq -nc --arg id "$id" --arg name "$(db_get "$id" NAME)" --arg source "$(db_get "$id" SOURCE)" \
         --arg version "$(db_get "$id" VERSION)" --arg icon "$icon" \
+        --arg kind "$(rec_source_kind "$id")" --arg repo "$(rec_repo "$id")" \
         --arg exec "$(app_exec "$id")" --argjson external "$external" \
-        '{id:$id,name:$name,source:$source,version:$version,icon:$icon,exec:$exec,external:$external}'
+        '{id:$id,name:$name,source:$source,sourceKind:$kind,repo:$repo,version:$version,icon:$icon,exec:$exec,external:$external}'
     else
       printf '%-24s %-12s %s\n' "$id" "$(db_get "$id" VERSION)" "$(db_get "$id" SOURCE)"
     fi
