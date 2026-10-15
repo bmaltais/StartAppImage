@@ -6,12 +6,12 @@
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-files=(bin/startappimage scripts/*.sh scripts/reload scripts/sheet tests/*.sh scripts/nested/*.sh scripts/tours/*.sh .githooks/pre-commit)
+files=(bin/startappimage scripts/*.sh scripts/dev scripts/reload scripts/sheet tests/*.sh scripts/tours/*.sh scripts/devkit/bin/* scripts/devkit/lib/*.sh .githooks/pre-commit)
 for f in "${files[@]}"; do
   bash -n "$f"
 done
 if command -v shellcheck >/dev/null; then
-  shellcheck "${files[@]}"
+  shellcheck -x -s bash "${files[@]}"
 else
   echo "lint-sh: shellcheck is not installed, only the syntax was checked"
 fi

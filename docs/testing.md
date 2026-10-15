@@ -1,12 +1,12 @@
 # Testing StartAppImage
 
-How a change gets checked, from the cheapest check to trying it in a live shell. Written so a person or an agent can pick it up cold, and so it can be improved: the last sections say how it works inside and what went wrong on the way.
+How a change gets checked, from the cheapest check to trying it in a live shell. The test session itself (`scripts/dev`), the recorder (`scripts/tour.sh`) and `scripts/sheet` are the shared devkit's, in `scripts/devkit` ([omarchy-plugin-devkit](https://github.com/bmaltais/omarchy-plugin-devkit)); its guides say how they work and why: [testing](../scripts/devkit/docs/testing.md), [how it works, and what went wrong on the way](../scripts/devkit/docs/how-it-works.md), [configuration](../scripts/devkit/docs/configuration.md). This page is what is StartAppImage's own.
 
 | You want to | Use | Touches your desktop? |
 |---|---|---|
 | know the scripts and QML are not broken, and the command line still behaves | `scripts/check.sh` (runs on every commit) | no |
 | run only the command-line tests | `tests/cli.sh [word ...]` | no: a throwaway `$HOME` |
-| see the plugin run, click it, type into it | `scripts/dev` | no: a nested desktop out of reach of your mouse |
+| see the plugin run, click it, type into it | `scripts/dev` | no: a nested desktop out of reach of your mouse, with a home of its own and a guard in front of its `PATH` |
 | watch that session | `scripts/dev watch` | a view-only window |
 | try it on your own shell | `scripts/reload`, `scripts/pointer.sh` | yes: restarts your shell, moves your pointer |
 | look over a recording | `scripts/sheet` | no |
@@ -20,107 +20,56 @@ One command, no running shell needed. The pre-commit hook runs it and refuses a 
 
 ```sh
 scripts/check.sh          # all of it
-scripts/lint-sh.sh        # bash -n and shellcheck over every script (rules in .shellcheckrc)
+scripts/lint-sh.sh        # bash -n and shellcheck over every script, the devkit's included (rules in .shellcheckrc)
+scripts/devkit/bin/lint . # the devkit's project rules (a background launch must redirect its output ...)
 scripts/lint-qml.py       # qmllint, failing only on a warning the baseline does not list
 omarchy plugin validate . # the manifest
 ```
 
 - **Enable the hook once per clone:** `git config core.hooksPath .githooks`. Override for the rare commit that must go on `main`: `ALLOW_MAIN=1 git commit`.
 - **QML warnings.** `qmllint` cannot see Quickshell's or Omarchy's types, so about ninety warnings are standing noise, kept in `scripts/qmllint-baseline.txt`. A *new* one (a misspelt id, a removed property) fails. If it is a real name from the shell, accept it with `scripts/lint-qml.py --update`. The idea is StartBar's, ported to Python.
-- **Project rules** live in `scripts/check.sh`: no empty `iconText` (an icon whose glyph was lost in an edit), and the recorder's window geometry is computed, never typed.
+- **Project rules** live in `scripts/check.sh` and the devkit's `bin/lint`: no empty `iconText` (an icon whose glyph was lost in an edit), and no `setsid -f` launch that keeps the caller's output open.
 - **Command-line tests.** `tests/cli.sh` runs `bin/startappimage` against a throwaway `$HOME` with a fake AppImage and asserts exit codes, JSON and files on disk (add, list, config, set, remove, adopted apps, locations, window, setup). A test is a `t_*` function; name words on the command line select tests. It never touches the network, the real home or the desktop, so it also runs in CI. Update checks against GitHub are not covered yet.
 - **What it cannot catch:** a layout that looks wrong, a click that misses, anything about the live shell. That is what the test session is for.
 
 ## 2. The test session: `scripts/dev`
 
-A second Hyprland with its own Omarchy shell, running this checkout as the plugin, driven over its own Wayland socket. `scripts/dev --help` is the reference; this is the shape of a session:
+`scripts/dev` is the devkit's `dev`, run for this checkout; `devkit.conf` tells it the plugin's id and layer, the sandbox (copies of the app's data, and of each AppImage a manifest names, so a rename, a hide or an update in the session never reaches a real file), and the commands below.
 
 ```sh
-scripts/dev up                       # 2 s. a nested desktop, out of your mouse's reach, and a window showing it live
+scripts/dev up                       # a nested desktop, out of your mouse's reach, and a window showing it live
 scripts/dev open                     # open the manager there (setup, settings APP_ID, close)
 scripts/dev shot /tmp/a.png          # screenshot it, then look at the file
-scripts/dev click 536 146            # click the pixel you saw in the screenshot
-scripts/dev type "pdf"               # type; scripts/dev key Escape for a named key
+scripts/dev click 826 387            # click the pixel you saw (rclick, scroll PX PY N, move PX PY: scripts/dev --help)
+scripts/dev key Escape               # press a key; scripts/dev type TEXT for text
 scripts/dev errors                   # what the plugin logged, noise removed (0 = clean)
 # edit a .qml file ...
-scripts/dev reload                   # 4 s. restarts the nested shell only; loads uncommitted files
+scripts/dev reload                   # restarts the nested shell only; loads uncommitted files
 scripts/dev down                     # always, when done
 ```
-
-Every command prints one line and exits non-zero when it did not do what it says (`dev reload FAILED ... qml-errors 2`, `dev open: the window did NOT open`).
-
-- **Pixels** are the session's screen, 1280×800 by default (`DEV_SIZE=1920x1200 scripts/dev up` for a larger one), 0,0 at the top-left, exactly as in a `dev shot`. Read the pixel off the screenshot and click it; nothing is scaled or offset.
-- **A click outside the card closes it**, as it would for a person: screenshot before you click.
-- **No commit or push is needed.** The plugin in the session is a link to this checkout, so `reload` loads what is on disk. (Your real shell is different: its plugin is a separate clone, see section 3.)
-- **It closes itself** after `DEV_TTL` seconds (default 1800), and a stale session is cleaned up by the next `up`. End it yourself with `down`: the session holds a virtual monitor and about a dozen processes.
-- **Your data is safe.** The session has a home of its own (`$XDG_RUNTIME_DIR/startappimage-dev/nest/home`) with *copies* of the app's data, so installing, updating, removing and renaming there never touch your apps. Its bar starts with a "TEST SESSION" label, because the window's own title is fixed by the nested compositor ("aquamarine - WAYLAND-N") and the desktop inside looks exactly like yours. The copied manifests and launcher entries named your real files by absolute path, so a change in the session (hiding an app, a rename, a move) was once written to your real `.desktop` file. `sandbox_repoint` in `scripts/nested/session.sh` now copies each AppImage a manifest names into the session (a reflink on btrfs and XFS, so it is instant there) and points `EXEC=`, `DESKTOP=` and `Exec=` at the copies; the session refuses to start if one still names a real file.
 
 ### Retaking the README screenshots: `scripts/screenshots.sh`
 
 Runs the whole thing in the session: `up` (with `DEV_SIZE` if you want another screen), window sizes reset in the sandbox, a flat backdrop window behind the cards, `open`, `setup`, `settings`, the install card, `shot` of each, a crop centred on the screen, then `down`. `SHOTS_OUT=DIR` writes elsewhere, for a trial run. The install card needs an `~/Applications` of the session's own, which the script builds, so it shows `~/Applications` and not your home.
 
-### Watching it: `scripts/dev watch`
-
-`up` opens it (`DEV_WATCH=0 scripts/dev up` for none; `dev watch` opens it later). It is an ordinary window (`scripts/dev-view.qml`) that shows the session five times a second. Drag it, cover it, resize it, send it to the scratchpad: your pointer is the normal arrow over it and a click does nothing, because nothing in it listens. `scripts/dev unwatch` closes it. It ends with the session. It shows the session's whole screen, so it looks empty until a plugin window is open (`dev open`).
-
-The session's *own* window is never put on your screen. That was tried and it was wrong: see "What went wrong" below.
-
 ## 3. Your real desktop: `scripts/reload`, `scripts/pointer.sh`
 
-For when someone wants to see the change in their own shell.
-
-- `scripts/reload [open | setup | settings ID] [--shot FILE]` syncs the installed plugin to this checkout's *pushed* HEAD, restarts the shell (the bar blinks), reports plugin errors, and optionally opens a window and screenshots it. It prints `reload ok branch@sha restart 6.5s qml-errors 0`. `scripts/reload --check` only reports whether the installed plugin matches. Commit and push first: the installed plugin is a separate git clone, and `omarchy plugin disable` and `enable` do **not** load new QML, only a full shell restart does.
-- `scripts/pointer.sh click PX PY` clicks the pixel PX,PY of a screenshot of the focused monitor (it works out the monitor's place and scale). It moves the real pointer, so only use it when asked.
+For when someone wants to see the change in their own shell: `scripts/reload` copies this checkout over the installed plugin and restarts the shell (the bar blinks); `scripts/pointer.sh click PX PY` moves the real pointer, so only when asked.
 
 ## 4. Looking over a recording: `scripts/sheet`
 
-`scripts/sheet FILE.avif|gif [--every S] [--width PX] [--cols N] [--out FILE]` makes one contact sheet image from an animation, so a whole recording can be checked at once. It knows that an AVIF holds two video streams (the still cover, then the animation) and reads the second.
-
-## 5. How it works inside
-
-```
-scripts/dev ──► scripts/nested/session.sh ──► Hyprland (nested) ──► quickshell: the Omarchy shell + this plugin
-   │                  (sandbox, start, stop)         │ a window of your compositor, moved to a virtual monitor
-   │                                                 │   at x = 20000, which a real pointer cannot reach
-   ├─ click, type, key ──► scripts/nested/vptr (virtual pointer) and wtype (virtual keyboard), on the session's socket
-   ├─ shot ───────────────► grim, on the session's socket
-   └─ errors ─────────────► the session's shell log, filtered
-```
-
-- **`scripts/nested/session.sh`** is shared with the recorder (`scripts/tour.sh`). It builds the sandbox home (Omarchy's themes copied, a `shell.json` that keeps your bar layout but only Omarchy's own widgets plus this plugin, the plugin linked to the checkout, copies of the app's data), starts the nested Hyprland under its own D-Bus that starts nothing, and stops everything it started.
-- **Input.** `scripts/nested/vptr.c` is a tiny client of the `wlr-virtual-pointer` protocol (built on first use into the session's folder). Keys use `wtype`. Both talk to the nested compositor's socket, so nothing reaches your real seat.
-- **Your mouse and keyboard are switched off inside the session.** The host seat gives the nested compositor two devices, `wl_pointer` and `wl_keyboard`; its config disables both (`hl.device({ name = ..., enabled = false })`). The virtual devices are separate and keep working. This was checked with a control: the same real click closes a card when the devices are left on (`NEST_HOST_INPUT=1`) and does nothing when they are off.
-- **The far monitor.** `up` creates a headless monitor `DEVTEST` 20,000 px to the right and moves the window there. Sliding a mouse off the edge of your screen stops at the edge, so the window cannot be reached. `down` removes the monitor.
-- **The noise filter.** `errors` and `reload` count only lines that name this plugin's files (`io.github.bmaltais.startappimage`) and carry a warning or error, minus known noise (layout "recursive rearrange", "Local plugin changed", qmlscanner, portal, `qt.svg`). Omarchy's own errors (for example the bar's "Cannot assign to read-only property moduleName" for the label widget) are not ours and are not counted.
-
-## 6. What went wrong on the way, and the rule it left
-
-Each of these cost a round of testing; they are why the design is what it is.
-
-- **Never put the nested compositor's window under a real pointer.** While a pointer is over it, the nested compositor chooses the cursor image: it hid the pointer, showed a hand, and left the pointer behaving oddly after a window drag. A transparent *shield* over the window cured the input but showed a "block" cursor and stopped the window being dragged, since it is a separate overlay. Hence the far monitor for the session and the separate view window for watching. The recorder's `--nested` mode uses the same far monitor and view window.
-- **Do not change the nested compositor's cursor options at runtime** (`hl.config({ cursor = ... })` through `hyprctl eval`): it crashed the nested Hyprland.
-- **A reused socket name hid the session.** The nested compositor's socket is `wayland-N` and the number is reused, so finding "the new socket" by a name that was absent before failed after an aborted cleanup left a stale file. It is found by being created after the start, and `down` removes its own socket and instance folder.
-- **`pgrep -f` matches its own shell.** A pattern passed to `pgrep -f` in a command line also matches that command line. Find processes by an environment marker (`procs_with` in `scripts/dev`) or use a `[x]` bracket pattern.
-- **Plugin reload does not load QML.** Only a full shell restart does. Both `reload` and `dev reload` do that restart.
-- **Icons lost in an edit.** Private-use glyphs in QML were dropped when files were rewritten, leaving `iconText: ""`; `check.sh` now fails on it. Write icons as `\uXXXX` escapes.
-- **ffprobe reads one frame of an AVIF.** It shows the still cover image first; the animation is the second video stream (`-f mov -map 0:v:1`). `scripts/sheet` does this for you.
-
-## 7. Limits, and ideas for improving it
-
-- **Hyprland only, and a newer Hyprland than 0.56 may change the Lua API** (`hl.dsp.window.move`, `hl.device`, `hl.monitor`) that `scripts/nested/session.sh` and `scripts/dev` use.
-- **One session at a time** (a fixed state folder and monitor name).
-- **The view window is a picture, not the session**: five frames a second, so a fast animation looks choppy, and the cursor of the session is whatever the screenshot has in it.
-- **`dev click` has no hover, drag or scroll.** `vptr` can drag (the recorder uses it); `dev` could expose `drag` and `scroll`.
-- **Ideas:** a `dev run SCRIPT` that replays a list of steps and fails on the first miss (a smoke test for CI-less checking); `dev shot --diff` against the last shot; installing `wl-mirror` or a Quickshell `ScreencopyView` would replace the five-frames-a-second picture with a live one.
+`scripts/sheet FILE.avif|gif [--every S] [--width PX] [--cols N] [--out FILE]` makes one contact sheet image from an animation (the devkit's `sheet`).
 
 ## Where the files are
 
 | Path | What it is |
 |---|---|
+| `devkit.conf` | what the devkit needs to know about this plugin: its id, layer, sandbox, commands |
+| `scripts/devkit/` | the devkit (a git subtree: `git subtree pull --prefix scripts/devkit https://github.com/bmaltais/omarchy-plugin-devkit vX.Y.Z --squash`) |
+| `scripts/dev`, `scripts/tour.sh`, `scripts/sheet` | two-line wrappers of the devkit's `dev`, `tour`, `sheet` for this checkout |
 | `scripts/check.sh`, `lint-sh.sh`, `lint-qml.py`, `qmllint-baseline.txt`, `.shellcheckrc` | the checks |
-| `.githooks/pre-commit`, `.github/workflows/check.yml` | the hook (refuses `main`, runs the checks) and the CI job (shellcheck) |
-| `scripts/dev`, `scripts/dev-view.qml` | the test session and its view window |
-| `scripts/nested/` | session start/stop and the virtual pointer, shared with the recorder |
+| `.githooks/pre-commit`, `.github/workflows/check.yml` | the hook (refuses `main`, runs the checks) and the CI job (shellcheck, the CLI tests) |
+| `tests/cli.sh` | the command-line behaviour tests |
+| `scripts/screenshots.sh`, `scripts/preview.sh` | the README screenshots and the marketplace picture |
+| `scripts/tours/`, `scripts/hero.sh` | this app's tour ([recording-tours.md](recording-tours.md)) |
 | `scripts/reload`, `scripts/pointer.sh` | for the real desktop |
-| `scripts/sheet` | contact sheets |
-| `scripts/tour.sh`, `scripts/tours/`, `scripts/tour-banner.qml` | the recorder ([recording-tours.md](recording-tours.md)) |
