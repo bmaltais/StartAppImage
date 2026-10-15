@@ -1,0 +1,165 @@
+// The window the tour recorder (scripts/tour.sh) puts in the middle of your real screen: red with white text,
+// so it cannot be missed. First it asks you to confirm, with Proceed and Cancel buttons; then, while the tour
+// is recording, it says to leave the mouse and keyboard alone and which step it is on; at the end it turns
+// green and says you can use them again. It redraws in place, so it does not flicker.
+//
+// Run by the recorder with `quickshell -n -p scripts/tour-banner.qml`, configured by environment:
+//   TOUR_MODE     "confirm" (buttons, writes the answer) or "status" (shows TOUR_STATUS as it changes)
+//   TOUR_TITLE    the app's name
+//   TOUR_SCREEN   the name of the monitor to appear on (the real one)
+//   TOUR_ANSWER   confirm: a file that gets "proceed" or "cancel" written to it, then the window closes
+//   TOUR_STATUS   status: a file whose first line is "recording" or "done" and the rest is the text to show
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Quickshell.Wayland
+
+ShellRoot {
+  id: root
+
+  readonly property string mode: Quickshell.env("TOUR_MODE") || "status"
+  readonly property string appTitle: Quickshell.env("TOUR_TITLE") || "the app"
+  property string statusText: ""
+  readonly property bool done: root.statusText.indexOf("done") === 0
+  readonly property string statusBody: {
+    var i = root.statusText.indexOf("\n")
+    return i < 0 ? "" : root.statusText.substring(i + 1).replace(/\n+$/, "")
+  }
+
+  readonly property color red: "#c62828"
+  readonly property color green: "#2e7d32"
+
+  function answer(what) {
+    Quickshell.execDetached(["sh", "-c", "printf %s \"$1\" > \"$2\"", "sh", what, Quickshell.env("TOUR_ANSWER")])
+    Qt.quit()
+  }
+
+  FileView {
+    path: Quickshell.env("TOUR_STATUS")
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.statusText = text()
+  }
+
+  PanelWindow {
+    id: win
+    screen: {
+      var name = Quickshell.env("TOUR_SCREEN")
+      for (var i = 0; i < Quickshell.screens.length; i++) if (Quickshell.screens[i].name === name) return Quickshell.screens[i]
+      return Quickshell.screens[0]
+    }
+    // No anchors: a layer-shell window with none is centred on its screen.
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.namespace: "start-tour-banner"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: root.mode === "confirm" ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    implicitWidth: 760
+    implicitHeight: col.implicitHeight + 72
+    color: "transparent"
+
+    Rectangle {
+      anchors.fill: parent
+      radius: 14
+      color: root.mode === "status" && root.done ? root.green : root.red
+      border.width: 3
+      border.color: "white"
+      focus: true
+      Keys.onEscapePressed: if (root.mode === "confirm") root.answer("cancel")
+
+      Column {
+        id: col
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.margins: 36
+        spacing: 18
+
+        Text {
+          width: parent.width
+          wrapMode: Text.WordWrap
+          horizontalAlignment: Text.AlignHCenter
+          color: "white"
+          font.family: "JetBrainsMono Nerd Font"
+          font.pixelSize: 28
+          font.bold: true
+          text: root.mode === "confirm" ? "Record the " + root.appTitle + " tour?"
+            : root.done ? "The tour is done"
+            : "Recording the " + root.appTitle + " tour"
+        }
+
+        Text {
+          width: parent.width
+          wrapMode: Text.WordWrap
+          horizontalAlignment: Text.AlignHCenter
+          color: "white"
+          font.family: "JetBrainsMono Nerd Font"
+          font.pixelSize: 19
+          lineHeight: 1.25
+          text: root.mode === "confirm"
+            ? "For about two minutes a script will drive the mouse pointer and the keyboard on a virtual screen.\n\nDO NOT TOUCH THE MOUSE OR THE KEYBOARD until this window says it is done. Whatever it changes is put back afterwards."
+            : root.done ? "You can use the mouse and the keyboard again."
+            : "DO NOT TOUCH THE MOUSE OR THE KEYBOARD.\nThe pointer is driving a virtual screen and typing goes there."
+        }
+
+        Text {
+          visible: root.mode === "status" && !root.done && root.statusBody !== ""
+          width: parent.width
+          wrapMode: Text.WordWrap
+          horizontalAlignment: Text.AlignHCenter
+          color: "white"
+          font.family: "JetBrainsMono Nerd Font"
+          font.pixelSize: 21
+          font.bold: true
+          text: root.statusBody
+        }
+
+        // Confirm: Proceed says you will leave the mouse and keyboard alone; Cancel stops before anything is touched.
+        Row {
+          visible: root.mode === "confirm"
+          anchors.horizontalCenter: parent.horizontalCenter
+          spacing: 24
+
+          component Choice: Rectangle {
+            id: choice
+            property string label: ""
+            property bool primary: false
+            signal clicked()
+            width: Math.max(180, choiceLabel.implicitWidth + 48)
+            height: 52
+            radius: 10
+            color: choice.primary ? (hover.hovered ? "#f2f2f2" : "white") : (hover.hovered ? "#d84343" : "transparent")
+            border.width: 3
+            border.color: "white"
+            Text {
+              id: choiceLabel
+              anchors.centerIn: parent
+              text: choice.label
+              color: choice.primary ? root.red : "white"
+              font.family: "JetBrainsMono Nerd Font"
+              font.pixelSize: 20
+              font.bold: true
+            }
+            HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
+            TapHandler { onTapped: choice.clicked() }
+          }
+
+          Choice { label: "Proceed"; primary: true; onClicked: root.answer("proceed") }
+          Choice { label: "Cancel"; onClicked: root.answer("cancel") }
+        }
+
+        Text {
+          visible: root.mode === "confirm"
+          width: parent.width
+          wrapMode: Text.WordWrap
+          horizontalAlignment: Text.AlignHCenter
+          color: "white"
+          opacity: 0.85
+          font.family: "JetBrainsMono Nerd Font"
+          font.pixelSize: 15
+          text: "By pressing Proceed you confirm you will not touch them. Esc cancels."
+        }
+      }
+    }
+  }
+}

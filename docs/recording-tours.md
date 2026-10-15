@@ -16,28 +16,29 @@ How to record a short GIF that shows an app being used, with `scripts/tour.sh`. 
 ```sh
 scripts/hero.sh              # records it, leaves the GIF in /tmp/hero.gif for a look
 scripts/hero.sh --install    # records it and copies it to screenshots/hero.gif
+scripts/hero.sh --yes        # does not ask first (for when another script runs it)
 ```
 
-`scripts/hero.sh` is a shortcut for `scripts/tour.sh scripts/tours/hero.sh`. It takes a little over two minutes, of which the tour itself is about one. **Leave the mouse and keyboard alone** until the banner in the corner of your screen says it is done: the pointer is driving a virtual screen and typing goes there.
+`scripts/hero.sh` is a shortcut for `scripts/tour.sh scripts/tours/hero.sh`. It takes a little over two minutes, of which the tour itself is about one. A red window in the middle of your screen first asks you to confirm: **Proceed** starts the recording, **Cancel** (or Esc) stops before anything is touched. After that, **leave the mouse and keyboard alone** until the window turns green and says the tour is done: the pointer is driving a virtual screen and typing goes there.
 
 Retake the tour when a step of it changes (a button moves, a label is renamed), and look at the GIF before you commit it: it clicks the real app at fixed places, so a changed layout makes it miss.
 
 ## What you need
 
 - **Hyprland** (it uses its `hyprctl` and the `hl.dsp.*` dispatchers of 0.56) on **Omarchy**.
-- **Tools**: `hyprctl`, `jq`, `grim`, `ffmpeg` (with the `drawtext` filter), ImageMagick (`magick`), `imv`, `foot` and `ydotool`. The recorder checks for them and says which one is missing.
+- **Tools**: `hyprctl`, `jq`, `grim`, `ffmpeg` (with the `drawtext` filter), ImageMagick (`magick`), `imv`, `quickshell` and `ydotool`. The recorder checks for them and says which one is missing.
 - **ydotool with its daemon running and a writable `/dev/uinput`**, to move the real pointer and type. If `ls -l /dev/uinput` shows it is not writable by you, add yourself to the group that owns it (on Omarchy, `wheel`) and give that group access with a udev rule: `KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="wheel", MODE="0660", OPTIONS+="static_node=uinput"` in `/etc/udev/rules.d/80-uinput.rules`, then reload the rules. `ydotoold --socket-path=$XDG_RUNTIME_DIR/.ydotool_socket --socket-own=$(id -u):$(id -g)` starts the daemon.
 - **The app running**, and whatever the tour uses installed in it (the StartAppImage tour uses ArtCraft Launcher with a GitHub source, and PdfCraft).
 
 ## What happens when you run it
 
-1. A **banner window** appears in the bottom-right corner of your real screen: "Recording the StartAppImage tour. Please leave the mouse and keyboard alone…", showing the step it is on.
+1. A red window appears in the middle of your real screen, "Record the StartAppImage tour?", saying what is about to happen and asking you not to touch the mouse or keyboard. **Proceed** continues; **Cancel** or Esc exits with nothing changed. (`--yes` skips this.)
 2. A **virtual monitor** (1280×800, `TOURREC`) is created to the right of your screens and focused, with a plain full-screen backdrop (`imv`) on it. Your own screen is left alone.
 3. The tour's `tour_prepare` runs: it saves whatever the tour will change and sets things up. If the tour asks (`TOUR_RESTART_SHELL=1`), the Omarchy shell is restarted so it reads the change.
 4. `tour_setup` runs, then **filming starts**: `grim` takes a frame of the virtual monitor over and over, each stamped with its time.
-5. `tour_play` runs: the steps, moving the real pointer and typing with `ydotool`. Each `cap` shows a caption from then until the next one.
+5. `tour_play` runs: the steps, moving the real pointer and typing with `ydotool`. Each `cap` shows a caption from then until the next one, and the red window, now saying "Recording the StartAppImage tour. Do not touch the mouse or the keyboard", shows the step it is on.
 6. Filming stops. The frames become a video, the captions are drawn on it with `ffmpeg`, and it is turned into a GIF (10 frames a second, 1200 px wide, 128 colours).
-7. **Everything is put back** (`tour_restore`, the monitor, focus, the pointer, a shell restart if one was made), the banner says it is done, and a notification says so too. This also happens when you interrupt it with Ctrl+C.
+7. **Everything is put back** (`tour_restore`, the monitor, focus, the pointer, a shell restart if one was made), the window turns green and says the tour is done for a few seconds, and a notification says so too. This also happens when you interrupt it with Ctrl+C.
 
 ## Writing a tour for an app
 
@@ -159,7 +160,7 @@ Other commands in `tour_play` are ordinary shell: opening the app (`omarchy-shel
 - **Captions** are drawn by `ffmpeg`'s `drawtext`, each enabled between the time it was said and the time of the next.
 - **The GIF** uses a two-pass palette (`palettegen` then `paletteuse`) at 10 frames a second and 1200 px wide, which keeps a minute of UI to a few MB. Change those numbers at the end of `scripts/tour.sh` if you need a smaller or sharper file.
 - **The pointer** is moved with `hyprctl dispatch hl.dsp.cursor.move`, which places it, followed by a 1 px `ydotool` nudge, which makes Hyprland fire a real motion event so hovers work. Clicks and typing go through `ydotool`.
-- **The banner** is a `foot` window that shows a text file the recorder rewrites at each step. It is moved onto the real monitor, floated, resized, pinned and put in the corner with `hl.dsp.window.*`. Notifications cannot do this job: the Omarchy shell's, and Hyprland's own, appear on the focused monitor, which is the virtual one while recording, so they would end up in the GIF.
+- **The red window** is `scripts/tour-banner.qml`, run by `quickshell` as its own small instance next to the Omarchy shell (so a shell restart does not touch it): a centred, always-on-top layer-shell window on the real monitor. It runs twice: first in *confirm* mode (Proceed and Cancel, the answer is written to a file the recorder waits on), then in *status* mode, where it shows a text file the recorder rewrites at each step and turns green when it is told the tour is done. It redraws in place, so it does not flicker, and in status mode it takes no keyboard focus. Notifications cannot do this job: the Omarchy shell's, and Hyprland's own, appear on the focused monitor, which is the virtual one while recording, so they would end up in the GIF. (A first version used a terminal window that redrew its text four times a second; it flickered.)
 - **Keys only when the app is up.** `key`, `typed` and `esc` check that the app's layer is mapped on the virtual monitor first. Otherwise the keys would go to the backdrop window (a stray `q` quits `imv`) or somewhere worse.
 
 ## Troubleshooting
@@ -168,8 +169,10 @@ Other commands in `tour_play` are ordinary shell: opening the app (`omarchy-shel
 - **Clicks miss**: the layout is not what you measured. The usual cause is a remembered size or position: reset it in `tour_prepare` and use `TOUR_RESTART_SHELL=1`. Or the app's window opened on the wrong monitor, because the virtual one was not focused (the recorder refocuses it after a restart).
 - **Toggles**: an `open` command that is a toggle closes the window when it is already up. Make sure of the state a step starts in.
 - **Frames look empty or half-drawn at the start or end**: the first second is cut on purpose. Add a `sleep` at the start of the first step if the app needs longer to appear.
-- **A run was killed with `kill -9`**: the cleanup did not run. `hyprctl output remove TOURREC`, close the `tour-banner` window, kill `imv`, and restore by hand what the tour changed.
+- **A run was killed with `kill -9`**: the cleanup did not run. `hyprctl output remove TOURREC`, kill the `quickshell` instance running `tour-banner.qml` and `imv` (by process ID, `pgrep -f tour-banner`), and restore by hand what the tour changed.
+- **The Proceed button does nothing**: a click needs the pointer to have moved onto the button first, as a real mouse does. If you are driving it with `ydotool` yourself, move onto the button, then click.
 - **The GIF is too big**: shorten the tour, lower the frame rate or width, or reduce `max_colors` in the last `ffmpeg` command of `scripts/tour.sh`.
+- **The apps open on your real screen instead of the virtual one**: the window that asks puts focus on your real monitor; the recorder refocuses the virtual one after it appears. If you add steps that open windows before `tour_play`, refocus it yourself: `hyprctl dispatch "hl.dsp.focus({ monitor = \"$MON\" })"`.
 - **Your pointer jumped**: it is on the virtual monitor for the length of the tour, and goes back to where it was at the end.
 
 ## Using it in another Start app

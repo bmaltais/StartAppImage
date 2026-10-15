@@ -2,18 +2,20 @@
 # Records an app's tour as a GIF: a short story of using it, with a caption for each step. The same
 # recorder serves every Start app; each app supplies a tour file that says what to do.
 #
-#   scripts/tour.sh TOURFILE [--install]
+#   scripts/tour.sh TOURFILE [--install] [--yes]
 #
 #   TOURFILE    a bash file that defines the tour (see "Writing a tour" below), e.g. scripts/tours/hero.sh
 #   --install   copy the GIF to the tour's TOUR_OUT in the repo (default: leave it in $TMPDIR and say where)
+#   --yes       do not ask first (for when it is run from another script)
 #
 # How it works. It films a temporary virtual monitor frame by frame with grim, so your own screen is left
 # alone, puts a plain backdrop on it, and drives the real pointer and keyboard with ydotool to click through
 # the app there. Hands off the mouse and keyboard while it runs: the pointer is on the virtual monitor and
-# typing goes to it. So you know, a small banner window stays in the corner of your real screen saying so,
-# with the step it is on (a notification would show on the virtual monitor, and in the GIF), and a
-# notification says when it is done. Whatever the tour changes is put back when it ends or is interrupted.
-# Needs: hyprctl (Hyprland), jq, grim, ffmpeg (with drawtext), ImageMagick, imv, foot, ydotool with its daemon
+# typing goes to it. So you know, a red window in the middle of your real screen first asks you to confirm
+# (Proceed or Cancel) and then stays up saying so, with the step it is on, until it says it is done (a
+# notification would show on the virtual monitor, and in the GIF). Whatever the tour changes is put back when
+# it ends or is interrupted.
+# Needs: hyprctl (Hyprland), jq, grim, ffmpeg (with drawtext), ImageMagick, imv, quickshell, ydotool with its daemon
 # running and a writable /dev/uinput. docs/recording-tours.md is the guide.
 #
 # Writing a tour. A tour file is sourced by this script and defines:
@@ -51,8 +53,15 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 tourfile=${1:-}
 install=false
-[[ ${2:-} == --install ]] && install=true
-[[ -f $tourfile ]] || { echo "tour: usage: scripts/tour.sh TOURFILE [--install]" >&2; exit 2; }
+ask=true
+for arg in "${@:2}"; do
+  case $arg in
+    --install) install=true ;;
+    --yes) ask=false ;;
+    *) echo "tour: unknown option $arg" >&2; exit 2 ;;
+  esac
+done
+[[ -f $tourfile ]] || { echo "tour: usage: scripts/tour.sh TOURFILE [--install] [--yes]" >&2; exit 2; }
 tourfile=$(cd "$(dirname "$tourfile")" && pwd)/$(basename "$tourfile")
 
 # shellcheck disable=SC1090
@@ -69,7 +78,7 @@ declare -F tour_play >/dev/null || { echo "tour: the tour file must define tour_
 MON=TOURREC
 W=${TOUR_SIZE%x*}
 H=${TOUR_SIZE#*x}
-for tool in hyprctl jq grim ffmpeg ffprobe magick imv foot ydotool notify-send; do
+for tool in hyprctl jq grim ffmpeg ffprobe magick imv quickshell ydotool notify-send; do
   command -v "$tool" >/dev/null || { echo "tour: $tool is needed" >&2; exit 1; }
 done
 if declare -F tour_requires >/dev/null; then tour_requires || exit 1; fi
@@ -77,41 +86,44 @@ if declare -F tour_requires >/dev/null; then tour_requires || exit 1; fi
 TMP=$(mktemp -d)
 mkdir -p "$TMP/frames"
 
-# ---- the banner that says it is recording ------------------------------------------------------
-# A small terminal window pinned to the corner of the real monitor, showing a text file that is rewritten
-# as the steps go by. (The shell's notifications and Hyprland's own appear on the focused monitor, which is
-# the virtual one while recording, so they would end up in the GIF.)
-banner="$TMP/banner.txt"
-guide="Please leave the mouse and keyboard alone. The pointer is driving a virtual screen and typing goes there."
-say() { # LINE: the status line under the banner's heading
-  printf '\n  Recording the %s tour\n\n  %s\n\n  %s\n' "$TOUR_TITLE" "$guide" "$1" >"$banner.new" && mv "$banner.new" "$banner"
-}
+# ---- the window that asks, and then says it is recording ----------------------------------------
+# scripts/tour-banner.qml, run with quickshell: a red window in the middle of the real screen. It redraws in
+# place, so it does not flicker. (The shell's notifications and Hyprland's own appear on the focused
+# monitor, which is the virtual one while recording, so they would end up in the GIF.)
+banner_qml="$HERE/tour-banner.qml"
+status="$TMP/status.txt"
+orig_mon=$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name')
 banner_pid=""
-start_banner() { # pinned to the corner of the monitor that was focused when the tour started
-  local addr i mx my mw mh bw=620 bh=190
+guide="The pointer is driving a virtual screen and typing goes there."
+say() { # LINE: the step it is on; "done" as the first argument says it is over
+  if [[ $1 == "done" ]]; then printf 'done\n' >"$status.new"; else printf 'recording\n%s\n' "$1" >"$status.new"; fi
+  mv "$status.new" "$status"
+}
+confirm() { # asks; returns non-zero if the answer is not Proceed
+  local answer="$TMP/answer.txt" qpid
+  rm -f "$answer"
+  TOUR_MODE=confirm TOUR_TITLE=$TOUR_TITLE TOUR_SCREEN=$orig_mon TOUR_ANSWER=$answer \
+    quickshell -n -p "$banner_qml" >/dev/null 2>&1 &
+  qpid=$!
+  while [[ ! -s $answer ]] && kill -0 "$qpid" 2>/dev/null; do sleep 0.2; done
+  wait "$qpid" 2>/dev/null
+  [[ $(cat "$answer" 2>/dev/null) == proceed ]]
+}
+start_banner() {
   say "Starting..."
-  foot --app-id=tour-banner -T "Recording the $TOUR_TITLE tour" \
-    -e sh -c 'while :; do clear; cat "$1"; sleep 0.4; done' sh "$banner" >/dev/null 2>&1 &
+  TOUR_MODE=status TOUR_TITLE=$TOUR_TITLE TOUR_SCREEN=$orig_mon TOUR_STATUS=$status \
+    quickshell -n -p "$banner_qml" >/dev/null 2>&1 &
   banner_pid=$!
-  for i in $(seq 1 30); do
-    addr=$(hyprctl clients -j | jq -r '.[] | select(.class == "tour-banner") | .address' | head -n1)
-    [[ -n $addr ]] && break
-    sleep 0.2
-  done
-  [[ -n $addr ]] || return 0
-  read -r mx my mw mh < <(hyprctl monitors -j | jq -r --arg m "$orig_mon" '.[] | select(.name == $m) | "\(.x) \(.y) \(.width) \(.height)"')
-  hyprctl dispatch "hl.dsp.window.move({ monitor = \"$orig_mon\", window = \"address:$addr\" })" >/dev/null
-  hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"address:$addr\" })" >/dev/null
-  hyprctl dispatch "hl.dsp.window.resize({ x = $bw, y = $bh, exact = true, window = \"address:$addr\" })" >/dev/null
-  hyprctl dispatch "hl.dsp.window.move({ x = $((mx + mw - bw - 24)), y = $((my + mh - bh - 24)), exact = true, window = \"address:$addr\" })" >/dev/null
-  hyprctl dispatch "hl.dsp.window.pin({ action = \"enable\", window = \"address:$addr\" })" >/dev/null
-  # Putting the banner up must not leave the keyboard on it.
+  sleep 1
+  # Putting the window up moves focus to the real screen; the app must open on the virtual one.
   hyprctl dispatch "hl.dsp.focus({ monitor = \"$MON\" })" >/dev/null
 }
+if $ask; then
+  confirm || { echo "tour: cancelled, nothing was changed." >&2; rm -rf "$TMP"; exit 0; }
+fi
 echo "tour: recording. Leave the mouse and keyboard alone until it says it is done." >&2
 
 # ---- putting everything back --------------------------------------------------------------------
-orig_mon=$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name')
 read -r orig_cx orig_cy < <(hyprctl cursorpos -j | jq -r '"\(.x) \(.y)"')
 rec_pid=""
 bg_pid=""
@@ -126,7 +138,8 @@ cleanup() {
     omarchy-restart-shell >/dev/null 2>&1
     sleep 7
   fi
-  say "Done. You can use the mouse and keyboard again."
+  # Green, "the tour is done", for a few seconds; then the window goes.
+  say done
   notify-send -a "$TOUR_TITLE tour" -u normal -t 8000 "The $TOUR_TITLE tour is done" "You can use the mouse and keyboard again." 2>/dev/null
   sleep 6
   [[ -n $banner_pid ]] && kill "$banner_pid" 2>/dev/null
