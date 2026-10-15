@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.bmaltais.startappimage",
   "name": "StartAppImage",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Bernard Maltais",
   "license": "MIT",
   "description": "Install, update and remove AppImages on Omarchy: a double-click install card, a searchable manager from the app launcher, and background update checks.",
