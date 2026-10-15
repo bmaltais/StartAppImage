@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# The nested session for the tour recorder (scripts/tour.sh --nested), sourced by it.
+# The nested session for the tour recorder (scripts/tour.sh), sourced by it.
 #
 # Instead of filming a hidden virtual monitor and driving your real mouse and keyboard, the tour runs inside a
 # second Hyprland that opens as a window on your screen. In it runs a second Omarchy shell with only the app's
@@ -36,10 +36,10 @@ real() { env HYPRLAND_INSTANCE_SIGNATURE="$REAL_SIG" WAYLAND_DISPLAY="$REAL_WD" 
 nested_requires() {
   local tool
   for tool in Hyprland dbus-run-session wtype gcc wayland-scanner pkg-config; do
-    command -v "$tool" >/dev/null || { echo "tour: --nested needs $tool" >&2; return 1; }
+    command -v "$tool" >/dev/null || { echo "tour: the recorder needs $tool" >&2; return 1; }
   done
-  [[ -n $REAL_SIG && -n $REAL_WD ]] || { echo "tour: --nested must run inside your Hyprland session" >&2; return 1; }
-  [[ -n ${TOUR_PLUGIN_ID:-} ]] || { echo "tour: --nested needs TOUR_PLUGIN_ID in the tour file (the plugin to load in the sandbox)" >&2; return 1; }
+  [[ -n $REAL_SIG && -n $REAL_WD ]] || { echo "tour: the recorder must run inside your Hyprland session" >&2; return 1; }
+  [[ -n ${TOUR_PLUGIN_ID:-} ]] || { echo "tour: the tour file needs TOUR_PLUGIN_ID in the tour file (the plugin to load in the sandbox)" >&2; return 1; }
 }
 
 # A home of its own for the nested session: the Omarchy themes it needs, a minimal shell config that loads only
@@ -204,7 +204,7 @@ nested_view_open() { # LIVE_FILE
   WAYLAND_DISPLAY=$NWD grim -t jpeg -q 75 "$frame" || { echo "tour: grim could not capture the session" >&2; return 1; }
   # Written to a temporary name and renamed so the window never reads half a file.
   setsid -f env NEST_VIEW=1 bash -c 'while [[ -s $2 ]]; do WAYLAND_DISPLAY=$1 grim -t jpeg -q 75 "$3.new" 2>/dev/null && mv -f "$3.new" "$3"; sleep 0.2; done' _ "$NWD" "$live" "$frame"
-  setsid -f env NEST_VIEW=1 DEV_FRAME="$frame" HOME="$REAL_HOME" XDG_CONFIG_HOME="$REAL_HOME/.config" XDG_DATA_HOME="$REAL_HOME/.local/share" XDG_STATE_HOME="$REAL_HOME/.local/state" XDG_CACHE_HOME="$REAL_HOME/.cache" \
+  setsid -f env NEST_VIEW=1 QS_APP_ID=startappimage-test-viewer DEV_FRAME="$frame" HOME="$REAL_HOME" XDG_CONFIG_HOME="$REAL_HOME/.config" XDG_DATA_HOME="$REAL_HOME/.local/share" XDG_STATE_HOME="$REAL_HOME/.local/state" XDG_CACHE_HOME="$REAL_HOME/.cache" \
     WAYLAND_DISPLAY="$REAL_WD" HYPRLAND_INSTANCE_SIGNATURE="$REAL_SIG" quickshell -n -p "$HERE/dev-view.qml" >/dev/null 2>&1
   for i in $(seq 1 20); do
     addr=$(real hyprctl clients -j | jq -r '[.[] | select(.title | test("view only"))][0].address // empty')

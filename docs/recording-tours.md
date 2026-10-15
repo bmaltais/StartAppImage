@@ -11,7 +11,7 @@ How to record a short animation that shows an app being used, with `scripts/tour
 - [Troubleshooting](#troubleshooting)
 - [Human-like input](#human-like-input)
 - [Reading time](#reading-time)
-- [Nested mode](#nested-mode---nested)
+- [The test session it runs in](#the-test-session-it-runs-in)
 - [Using it in another Start app](#using-it-in-another-start-app)
 
 ## Run the StartAppImage tour
@@ -19,30 +19,28 @@ How to record a short animation that shows an app being used, with `scripts/tour
 ```sh
 scripts/hero.sh              # records it, leaves the result in /tmp/hero.avif for a look
 scripts/hero.sh --install    # records it and copies it to screenshots/hero.avif
-scripts/hero.sh --yes        # does not ask first (for when another script runs it)
-scripts/hero.sh --nested     # runs it in a window you can watch, in a sandbox (see "Nested mode")
 ```
 
-`scripts/hero.sh` is a shortcut for `scripts/tour.sh scripts/tours/hero.sh`. It takes a little over two minutes, of which the tour itself is about one. A red window in the middle of your screen first asks you to confirm: **Proceed** starts the recording, **Cancel** (or Esc) stops before anything is touched. After that, **leave the mouse and keyboard alone** until the window turns green and says the tour is done: the pointer is driving a virtual screen and typing goes there.
+`scripts/hero.sh` is a shortcut for `scripts/tour.sh scripts/tours/hero.sh`. It takes a little over two minutes, of which the tour itself is about one. A red strip appears along the top of your screen with a **Cancel recording** button, and a view-only window below it shows the recording as it happens. **Your mouse and keyboard stay yours** and nothing of yours is changed: the tour runs in a sandbox. Cancel any time (the button, or Ctrl+C in the terminal): the run stops within a step, the sandbox is thrown away and nothing is kept.
 
-Retake the tour when a step of it changes (a button moves, a label is renamed), and look at the GIF before you commit it: it clicks the real app at fixed places, so a changed layout makes it miss.
+Retake the tour when a step of it changes (a button moves, a label is renamed), and look at the result before you commit it: it clicks the real app at fixed places, so a changed layout makes it miss. `scripts/sheet /tmp/hero.avif` makes a contact sheet of it.
 
 ## What you need
 
-- **Hyprland** (it uses its `hyprctl` and the `hl.dsp.*` dispatchers of 0.56) on **Omarchy**.
-- **Tools**: `hyprctl`, `jq`, `grim`, `ffmpeg` (with the `drawtext` filter), ImageMagick (`magick`), `imv`, `quickshell` and `ydotool`. The recorder checks for them and says which one is missing.
-- **ydotool with its daemon running and a writable `/dev/uinput`**, to move the real pointer and type. If `ls -l /dev/uinput` shows it is not writable by you, add yourself to the group that owns it (on Omarchy, `wheel`) and give that group access with a udev rule: `KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="wheel", MODE="0660", OPTIONS+="static_node=uinput"` in `/etc/udev/rules.d/80-uinput.rules`, then reload the rules. `ydotoold --socket-path=$XDG_RUNTIME_DIR/.ydotool_socket --socket-own=$(id -u):$(id -g)` starts the daemon.
-- **The app running**, and whatever the tour uses installed in it (the StartAppImage tour uses ArtCraft Launcher with a GitHub source, and PdfCraft).
+- **Hyprland** (it uses its `hyprctl` and the `hl.*` Lua API of 0.56) on **Omarchy**, and you run the recorder from inside it.
+- **Tools**: `hyprctl`, `jq`, `grim`, `ffmpeg` (with `drawtext`, and `libaom-av1` for an `.avif`), ImageMagick (`magick`), `quickshell`, `wtype`, `dbus-run-session`, and `gcc`, `wayland-scanner` and `pkg-config` with the Wayland client library (to build the pointer client on the first run; Arch: `wayland`, `wayland-protocols`, `gcc`). The recorder checks for them and says which one is missing. (`imv` too, for `TOUR_BACKDROP=plain`.)
+- **The app installed**, and whatever the tour uses installed in it (the StartAppImage tour uses ArtCraft Launcher with a GitHub source, and PdfCraft). The sandbox gets copies.
+- A monitor tall enough for the strip and the view window (about 1,050 px).
 
 ## What happens when you run it
 
-1. (Default mode only; `--nested` skips this step.) A red window appears in the middle of your real screen, "Record the StartAppImage tour?", saying what is about to happen and asking you not to touch the mouse or keyboard. **Proceed** continues; **Cancel** or Esc exits with nothing changed. (`--yes` skips this.)
-2. A **virtual monitor** (1280×800, `TOURREC`) is created to the right of your screens and focused, with a plain full-screen backdrop (`imv`) on it. Your own screen is left alone.
-3. The tour's `tour_prepare` runs: it saves whatever the tour will change and sets things up. If the tour asks (`TOUR_RESTART_SHELL=1`), the Omarchy shell is restarted so it reads the change.
-4. `tour_setup` runs, then **filming starts**: `grim` takes a frame of the virtual monitor over and over, each stamped with its time.
-5. `tour_play` runs: the steps, moving the real pointer and typing with `ydotool`. Each `cap` shows a caption from then until the next one, and the red window, now saying "Recording the StartAppImage tour. Do not touch the mouse or the keyboard", shows the step it is on.
-6. Filming stops. The frames become a video, the captions are drawn on it with `ffmpeg`, and it is turned into a GIF (10 frames a second, 1200 px wide, 128 colours).
-7. **Everything is put back** (`tour_restore`, the monitor, focus, the pointer, a shell restart if one was made), the window turns green and says the tour is done for a few seconds, and a notification says so too. This also happens when you interrupt it with Ctrl+C.
+1. **A far monitor** (`TOURTEST`, 1280×800) is created 20,000 px to the right of your screens, out of reach of a real pointer.
+2. **The sandbox** is built: a home with *copies* of what the tour file lists, a minimal `shell.json` that loads only this plugin (linked to your checkout, so it shows the code you are working on), and links to your themes. The tour's `tour_prepare` runs against it (`$HOME` is the sandbox).
+3. **The nested session** starts: a second Hyprland and a second Omarchy shell (your bar layout, the theme's wallpaper) as a window of your compositor, which is sent to the far monitor. The red strip and the **view window** open on your screen.
+4. `tour_setup` runs, then **filming starts**: `grim` takes a frame of the session over and over, each stamped with its time.
+5. `tour_play` runs: the steps, moving a *virtual* pointer and typing on a *virtual* keyboard inside the session. Each `cap` shows a caption from then until the next one, and the strip shows the step.
+6. Filming stops and the session ends at once. The frames become a video, the captions are drawn on it with `ffmpeg`, and it is turned into an AVIF or GIF (10 frames a second, 1000 px wide).
+7. The recorder compares your real files (`TOUR_REAL_UNCHANGED`) with their fingerprints from before, and fails the run if any changed. The strip turns green and says the recording is saved. The same cleanup runs when you cancel, press Ctrl+C, or the run passes `TOUR_MAX_SECONDS`.
 
 ## Writing a tour for an app
 
@@ -77,43 +75,23 @@ Run it with `scripts/tour.sh path/to/example.tour.sh` (add `--install` to copy t
 
 ### 2. Find the window's layer name
 
-Keys and typing are only sent while the app's window is up on the virtual monitor, so they can never land on anything else. The recorder finds it by its layer-shell namespace, `TOUR_LAYER`. For a Quickshell plugin this is its `WlrLayershell.namespace`; to see what is there, open the window and run `hyprctl layers -j | jq '[.. | .namespace? // empty] | unique'`. Without `TOUR_LAYER`, `key`, `typed` and `esc` do nothing.
+Keys and typing are only sent while the app's window is up in the session, so they can never land on anything else. The recorder finds it by its layer-shell namespace, `TOUR_LAYER`. For a Quickshell plugin this is its `WlrLayershell.namespace`; it is also what `scripts/dev status` looks for when it says the window is open. Without `TOUR_LAYER`, `typed` and `esc` do nothing.
 
 ### 3. Find where to click
 
-Coordinates are on the virtual monitor, `0,0` at its top-left, and do not change from run to run **if the window opens the same way each time**. Make that so: reset anything remembered (a saved window size or position) in `tour_prepare`, and restart the shell if it only reads that at start (`TOUR_RESTART_SHELL=1`).
+Coordinates are the session's screen, `0,0` at its top-left, 1280×800, and do not change from run to run **if the window opens the same way each time**. Make that so: reset anything remembered (a saved window size or position) in `tour_prepare`, which runs against the sandbox.
 
-To read coordinates off the screen, make a virtual monitor yourself, open the app on it and take a screenshot:
-
-```sh
-X=$(hyprctl monitors -j | jq -r '[.[] | .x + .width] | max')
-hyprctl output create headless TOURREC
-hyprctl eval "hl.monitor({ output = \"TOURREC\", mode = \"1280x800@60\", position = \"${X}x0\", scale = 1 })"
-hyprctl dispatch "hl.dsp.focus({ monitor = \"TOURREC\" })"      # apps open on the focused monitor
-# ... open the app, then:
-grim -o TOURREC /tmp/shot.png                                     # look at it: the pixel you see is the coordinate you use
-# click something by hand to see the next state:
-hyprctl dispatch "hl.dsp.cursor.move({ x = $((X + 500)), y = 300 })"; ydotool mousemove -x 1 -y 0; ydotool mousemove -x -1 -y 0; ydotool click 0xC0
-# when you are done:
-hyprctl output remove TOURREC
-hyprctl dispatch "hl.dsp.focus({ monitor = \"DP-3\" })"           # your own monitor's name
-```
-
-Take a screenshot at every state the tour passes through, and write the coordinates down as you go. Screenshots on the virtual monitor are exactly 1280×800, so what you read is what you click.
+To read coordinates, use the test session ([testing.md](testing.md)): `scripts/dev up`, open the app, `scripts/dev shot /tmp/a.png` and look at it. The pixel you see is the coordinate you use. `scripts/dev click X Y` takes you to the next state; take a screenshot at every state the tour passes through, and write the coordinates down as you go. `scripts/dev down` when done.
 
 ### 4. Look at it, and tune the timing
 
-Run without `--install`, then look at the result. A contact sheet shows every step at a glance:
-
-```sh
-ffmpeg -y -f mov -i /tmp/hero.avif -map 0:v:1 -vf "fps=1/3.5,scale=520:-1" /tmp/f_%02d.png && magick montage /tmp/f_*.png -tile 3x -geometry +4+4 /tmp/sheet.png
-```
+Run without `--install`, then look at the result. A contact sheet shows every step at a glance: `scripts/sheet /tmp/example.avif --every 4`.
 
 Give each caption enough time to be read (about 3 seconds for a short one), and let animations finish before the next click. Use `wait_until` for things that take as long as they take (a download), not a fixed `sleep`.
 
-### 5. Putting things back
+### 5. Making changes safe
 
-Anything the tour changes must come back. Save it in `tour_prepare`, restore it in `tour_restore`; the recorder calls `tour_restore` however the run ends. The StartAppImage tour, for example, saves the windows' size and position and restores them, makes one app look a version behind and restores its record, and switches the bar icon off and on (and restores whichever state it started in).
+The tour runs in a sandbox, so what it changes is thrown away. Anything it must not touch is listed in `TOUR_REAL_UNCHANGED` (paths under your real `$HOME`): the recorder fingerprints them before and after and fails the run if one changed. For data the tour changes, list it in `TOUR_SANDBOX_COPY` so the sandbox has its own copy. The StartAppImage tour, for example, resets the windows' saved size and place, makes one app look a version behind, and switches the bar icon off and on, all in the sandbox's copy.
 
 ## Reference
 
@@ -121,13 +99,17 @@ Anything the tour changes must come back. Save it in `tour_prepare`, restore it 
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `TOUR_TITLE` | The app's name, for the banner. **Required.** | |
+| `TOUR_TITLE` | The app's name, for the strip. **Required.** | |
 | `TOUR_OUT` | The result's path in the repo, used by `--install`. Its extension picks the format: `.avif` (animated AVIF) or `.gif` | `screenshots/hero.avif` |
-| `TOUR_LAYER` | The app window's layer-shell namespace; needed for `key`, `typed` and `esc` | none |
+| `TOUR_LAYER` | The app window's layer-shell namespace; needed for `typed` and `esc` | none |
 | `TOUR_STEPS` | How many steps (`cap` calls), for "Step 2 of 6" | unknown |
-| `TOUR_SIZE` | The virtual monitor, `WxH` | `1280x800` |
-| `TOUR_BG` | The backdrop colour | `#262a36` |
-| `TOUR_RESTART_SHELL` | `1` to restart the Omarchy shell after `tour_prepare` and again at the end | `0` |
+| `TOUR_SIZE` | The session's screen, `WxH` | `1280x800` |
+| `TOUR_BG` | With `TOUR_BACKDROP=plain`, the backdrop colour (default: the theme's wallpaper) | `#262a36` |
+| `TOUR_PLUGIN_ID` | **Required.** The plugin's id, to load in the sandbox | |
+| `TOUR_SANDBOX_COPY=(path …)` | Paths under `$HOME` to *copy* into the sandbox: the data the tour changes (e.g. `.local/share/startappimage`) | none |
+| `TOUR_SANDBOX_LINK=(path …)` | Paths under `$HOME` to *link* read-only (e.g. icons) | none |
+| `TOUR_REAL_UNCHANGED=(path …)` | Paths under your real `$HOME` that must not change: fingerprinted (name, size, mtime) before and after; a difference fails the run (exit 1) and keeps nothing | none |
+| `TOUR_MAX_SECONDS` | Stop a tour that runs longer than this, as a stuck step would | `300` |
 | `TOUR_FONT` | The caption font file | JetBrains Mono Nerd Font Bold |
 | `TOUR_GIF_WIDTH` | The width in pixels of the result, whichever format (10 frames a second) | `1000` |
 | `TOUR_AVIF_CRF` | AVIF quality, lower is sharper and bigger: 24 is 0.9 MB, 32 is 0.6 MB, 40 is 0.4 MB for the StartAppImage tour | `40` |
@@ -138,50 +120,47 @@ Anything the tour changes must come back. Save it in `tour_prepare`, restore it 
 | Function | Runs | Use it to |
 |---|---|---|
 | `tour_requires` | first | check what the tour needs; print a reason and return non-zero if it is missing |
-| `tour_prepare` | after the monitor and backdrop are up | save what the tour will change, and reset to a known state |
-| `tour_setup` | after the shell restart (if any), just before filming | make the changes that must be visible in the film |
+| `tour_prepare` | before the session starts, with `$HOME` the sandbox | reset to a known state |
+| `tour_sandbox DIR` | while the sandbox is built (optional) | adjust the copies, e.g. give an app its own copy of a file the tour will overwrite |
+| `tour_setup` | once the session is up, just before filming | make the changes that must be visible in the film |
 | `tour_play` | while filming. **Required.** | the steps |
-| `tour_restore` | at the end, or when interrupted | put back whatever the tour changed |
 
 ### Helpers for `tour_play`
 
 | Helper | Does |
 |---|---|
-| `cap "text"` | Shows this caption, at the bottom, from now until the next `cap`. Also updates the banner. Avoid `:` and `'` in the text (they are special to `ffmpeg`). |
+| `cap "text"` | Shows this caption, at the bottom, from now until the next `cap`. Also updates the strip. Avoid `:` and `'` in the text (they are special to `ffmpeg`). |
 | `glide X Y` | Moves the pointer there in small steps, so it is seen to travel. |
 | `click X Y [pause]` | Glides there, clicks, then waits `pause` seconds (default 0.9). |
 | `drag DX DY` | Presses the button where the pointer is, moves by that much, lets go. The move is a little larger than asked, so check what it does. |
 | `typed "text"` | Types it, slowly enough to be seen. |
-| `key CODE:1 CODE:0 …` | Presses keys (Linux key codes: `1` is Escape, `28` Enter, `14` Backspace, `29` Ctrl, `30` A). |
 | `esc` | Presses and releases Escape. |
 | `wait_until 'command' [seconds]` | Polls a shell command until it succeeds, up to `seconds` (default 30). |
-| `at X Y` | Puts the pointer there at once (with a nudge, so hovers fire). |
-| `MON`, `MX`, `W`, `H`, `TMP`, `REPO` | The monitor's name, its x in the layout, its size, a scratch folder and the repo root. |
+| `at X Y` | Puts the pointer there at once. |
+| `W`, `H`, `TMP`, `REPO` | The session's size, a scratch folder and the repo root. |
 
-Other commands in `tour_play` are ordinary shell: opening the app (`omarchy-shell … open`), `sleep`, reading files.
+Other commands in `tour_play` are ordinary shell: opening the app (`omarchy-shell … open`), `sleep`, reading files. `$HOME` is the sandbox while `tour_prepare`, `tour_setup` and `tour_play` run, and `omarchy-shell`, `hyprctl` and `grim` act on the nested session, so a tour file works out paths when it uses them (`$HOME/…` inside a function), not when the file loads. `tour_requires` runs with your real home, before the sandbox exists.
 
 ## How it works inside
 
-- **A virtual monitor**, because the real screen is yours: the recorder must not touch it, show its contents, or be disturbed by what is on it. Omarchy's screen recorder cannot see a virtual monitor, so frames are taken with `grim` (cursor included) in a loop, each file named for the time it was taken.
+- **A nested session**, because the real desktop is yours: the recorder must not touch it or be disturbed by it. Frames are taken with `grim` (cursor included) from the session's own Wayland socket, in a loop, each file named for the time it was taken. How the session is built, kept out of reach and watched: [the section below](#the-test-session-it-runs-in) and [testing.md](testing.md).
 - **Frame timing.** The frames are joined with `ffmpeg`'s concat demuxer, each shown for the time until the next one, so the video plays at the speed things really happened even though grabs take a variable time.
 - **Captions** are drawn by `ffmpeg`'s `drawtext`, each enabled between the time it was said and the time of the next.
 - **The result** is an **animated AVIF** by default (AV1 video in an image file, made with `libaom-av1`; `TOUR_AVIF_CRF`, default 40) at 10 frames a second and 1000 px wide: 79 seconds of UI in about 0.4 MB. It plays in an `<img>` in modern browsers, and GitHub serves it as `image/avif` and keeps `<img>` and `<picture>` tags for it (tested on GitHub with a throwaway branch). A `.gif` (`TOUR_OUT=....gif`) is the fallback for anywhere that cannot show AVIF: a two-pass palette (`palettegen`, `paletteuse`), 128 colours (`TOUR_GIF_COLORS`), 3.3 MB for the same tour. Measured on one recording: for the GIF, lowering the frame rate saves little (10 to 6 fps: 4.7 to 4.0 MB, as only the changed parts of a frame are stored) while width and colours matter most (900 px: 2.8 MB; 64 colours: 3.5 MB but the photo wallpaper bands; 256 colours: 5.9 MB). A WebM is about 0.8 MB but a `<video>` of a repo file is not known to play in a GitHub README, and an animated WebP came out bigger than the GIF. **ffprobe shows an AVIF's first image only** (the still cover); the animation is the second video stream, so use `ffprobe -f mov` or `-map 0:v:1`.
-- **The pointer** is moved with `hyprctl dispatch hl.dsp.cursor.move`, which places it, followed by a 1 px `ydotool` nudge, which makes Hyprland fire a real motion event so hovers work. Clicks and typing go through `ydotool`.
-- **The red window** (`scripts/tour-banner.qml`, which in `--nested` mode is a strip above the nested window), run by `quickshell` as its own small instance next to the Omarchy shell (so a shell restart does not touch it): a centred, always-on-top layer-shell window on the real monitor. It runs twice: first in *confirm* mode (Proceed and Cancel, the answer is written to a file the recorder waits on), then in *status* mode, where it shows a text file the recorder rewrites at each step and turns green when it is told the tour is done. It redraws in place, so it does not flicker, and in status mode it takes no keyboard focus. Notifications cannot do this job: the Omarchy shell's, and Hyprland's own, appear on the focused monitor, which is the virtual one while recording, so they would end up in the GIF. (A first version used a terminal window that redrew its text four times a second; it flickered.)
-- **Keys only when the app is up.** `key`, `typed` and `esc` check that the app's layer is mapped on the virtual monitor first. Otherwise the keys would go to the backdrop window (a stray `q` quits `imv`) or somewhere worse.
+- **The pointer and keys** are a virtual pointer (`scripts/nested/vptr.c`, the `wlr-virtual-pointer` protocol) and `wtype`, both on the session's socket, so nothing reaches your real seat.
+- **The red strip** (`scripts/tour-banner.qml`), run by `quickshell` as its own small instance next to the Omarchy shell: a top-anchored, always-on-top layer-shell window on your real monitor, with a **Cancel recording** button (it writes a file the recorder watches) and a text file the recorder rewrites at each step. It turns green at the end and grey when cancelled. It redraws in place, so it does not flicker, and takes no keyboard focus. Notifications cannot do this job: they would show on whichever screen has focus.
+- **Keys only when the app is up.** `typed` and `esc` check that the app's layer is mapped in the session first. Otherwise the keys would go to whatever else is there.
 
 ## Troubleshooting
 
 - **"window not up, skipped keys …"**: the app's window was not up when the keys were due, so they were not sent. A step before it did not open the window, or closed it (a single Esc already closes some windows, so a second Esc has nothing to close). Fix the earlier step; use `wait_until` rather than `sleep` if the window can be slow.
-- **Clicks miss**: the layout is not what you measured. The usual cause is a remembered size or position: reset it in `tour_prepare` and use `TOUR_RESTART_SHELL=1`. Or the app's window opened on the wrong monitor, because the virtual one was not focused (the recorder refocuses it after a restart).
+- **Clicks miss**: the layout is not what you measured. The usual cause is a remembered size or position: reset it in `tour_prepare` (the sandbox's copy).
 - **Toggles**: an `open` command that is a toggle closes the window when it is already up. Make sure of the state a step starts in.
 - **Frames look empty or half-drawn at the start or end**: the first second is cut on purpose. Add a `sleep` at the start of the first step if the app needs longer to appear.
-- **A run was killed with `kill -9`**: the cleanup did not run. `hyprctl output remove TOURREC`, kill the `quickshell` instance running `tour-banner.qml` and `imv` (by process ID, `pgrep -f tour-banner`), and restore by hand what the tour changed.
-- **The Proceed button does nothing**: a click needs the pointer to have moved onto the button first, as a real mouse does. If you are driving it with `ydotool` yourself, move onto the button, then click.
+- **A run was killed with `kill -9`**: the cleanup did not run. `hyprctl output remove TOURTEST`, and stop the leftovers: the `quickshell` running `tour-banner.qml` and `dev-view.qml`, and the nested Hyprland (they carry the sandbox's `XDG_CONFIG_HOME`, see `nested_procs` in `scripts/nested/session.sh`). Nothing of yours needs restoring.
 - **The GIF is too big**: shorten the tour, lower the frame rate or width, or reduce `max_colors` in the last `ffmpeg` command of `scripts/tour.sh`.
-- **The apps open on your real screen instead of the virtual one**: the window that asks puts focus on your real monitor; the recorder refocuses the virtual one after it appears. If you add steps that open windows before `tour_play`, refocus it yourself: `hyprctl dispatch "hl.dsp.focus({ monitor = \"$MON\" })"`.
-- **A "Process crashed: xdg-desktop-portal-hyprland" notice** (in `--nested` mode): a portal started inside the nested session and died when its compositor went. The recorder now gives the nested session a D-Bus that starts nothing by itself and stops its processes before the compositor, so this should not appear; if it does, `coredumpctl list` shows which process, and the notice (critical, so it stays up) can be cleared with `omarchy-notification-dismiss "Process crashed"`.
-- **Your pointer jumped**: it is on the virtual monitor for the length of the tour, and goes back to where it was at the end.
+- **A "Process crashed: xdg-desktop-portal-hyprland" notice** ): a portal started inside the nested session and died when its compositor went. The recorder now gives the nested session a D-Bus that starts nothing by itself and stops its processes before the compositor, so this should not appear; if it does, `coredumpctl list` shows which process, and the notice (critical, so it stays up) can be cleared with `omarchy-notification-dismiss "Process crashed"`.
+- **A step waits forever**: `TOUR_MAX_SECONDS` (default 300) ends the run and says so.
 
 ## Human-like input
 
@@ -221,55 +200,30 @@ The numbers come from:
 
 The tour prints the result for each caption (`tour: caption 3 (4 words) on screen 4.3 s (reading time 2.5 s)`), so you can see that every caption was up long enough. Reading time is why the StartAppImage tour is about 75 seconds and not 50.
 
-## Nested mode (`--nested`)
+## The test session it runs in
 
-The default mode films a hidden virtual monitor and drives your **real** mouse and keyboard, so you cannot use them while it runs, and it changes your real app and settings and puts them back afterwards. `--nested` removes all three problems:
+The session is shared with `scripts/dev` ([testing.md](testing.md) has the full account); this is what matters for recording.
 
-```sh
-scripts/hero.sh --nested             # or: scripts/tour.sh TOURFILE --nested
-```
-
-- **You can cancel it.** The red strip has a **Cancel recording** button. It stops the tour at once (within a step), throws the sandbox away, and turns the strip grey with "Recording cancelled"; nothing is kept. Ctrl+C in the terminal does the same, and so does the time limit (`TOUR_MAX_SECONDS`, default 300): the message says which one ended the run.
-- **You can watch it.** The tour runs inside a **second Hyprland** with a **second Omarchy shell** (your real bar layout and the theme's wallpaper, so it looks like your desktop). That session's own window sits on a virtual monitor 20,000 px to the right, which no real pointer can reach. What you watch is a **view-only window** (`scripts/dev-view.qml`) centred on your screen, showing the session five times a second, with a red status strip above it. Drag, resize or cover the view window: your pointer is the normal arrow over it and nothing in it listens. No confirmation is asked, since nothing real is used or changed.
-- **Your mouse and keyboard cannot reach it.** The window is out of reach (above), and the session also disables the two host input devices it is given (`wl_pointer`, `wl_keyboard`; `NEST_HOST_INPUT=1` keeps them). The tour is driven over the session's own Wayland socket with a virtual pointer and keyboard. The same far-monitor and view-window code is used by `scripts/dev` ([testing.md](testing.md)).
-- **It checks that it changed nothing of yours.** A tour file lists `TOUR_REAL_UNCHANGED=(paths under $HOME)`; the recorder fingerprints them (name, size, mtime) before and after, and if any differ the run FAILS (exit 1) and keeps nothing. The hero tour lists the shell settings, the app's config and data, and `~/Applications`.
-- **It changes nothing of yours.** The nested session has a **sandbox home** with *copies* of what the tour file lists, a minimal `shell.json` that loads only this plugin (linked to your checkout, so it shows the code you are working on), and read-only links to your themes. Settings, apps and files the tour changes are the sandbox's copies, thrown away at the end. `tour_restore` is not run, and no shell restart is needed.
-- **Nothing is left behind.** At the end everything the nested session started (its compositor, shell, its own D-Bus, file watchers) is stopped, and the window closes. The nested session has a D-Bus of its own that starts nothing by itself, so it does not launch portals that would crash and make Omarchy show you a crash notice.
-
-### Extra requirements
-
-`Hyprland` (you are in it), `dbus-run-session`, `wtype`, and `gcc`, `wayland-scanner` and `pkg-config` with the Wayland client library (to build the pointer client; Arch: `wayland`, `wayland-protocols`, `gcc`). The monitor needs about 1,050 pixels of height: the nested window is 1280×800 and goes below the status strip (24 px gap, 170 px high), its own title bar (30 px) and a 10 px margin, so it starts 234 px from the top. These are worked out from the strip's size in `scripts/nested/session.sh`, and the strip reads its size from the same place, so they cannot drift apart. If the monitor is too short the recorder says by how much the two will overlap. The recorder checks and says what is missing.
-
-### What a tour file adds for `--nested`
-
-| Variable / function | Meaning |
-|---|---|
-| `TOUR_PLUGIN_ID` | **Required.** The plugin's id, to load in the sandbox. |
-| `TOUR_SANDBOX_COPY=(path …)` | Paths under `$HOME` to *copy* into the sandbox, the data the tour changes (e.g. `.local/share/startappimage`). |
-| `TOUR_SANDBOX_LINK=(path …)` | Paths under `$HOME` to *link* read-only (e.g. icons). |
-| `tour_sandbox DIR` | Optional. Runs with the sandbox home to adjust the copies, e.g. give an app its own copy of a file that the tour will overwrite. |
-| `TOUR_BACKDROP=plain` | Put the flat `TOUR_BG` colour over the wallpaper, as the virtual monitor mode does. Default: the theme's wallpaper. |
-
-Differences in a tour file:
-
-- **`$HOME` is the sandbox** while `tour_prepare`, `tour_setup` and `tour_play` run, and `omarchy-shell`, `hyprctl` and `grim` act on the nested session. A tour file therefore has to work out paths when it uses them (`$HOME/…` inside a function), not when the file loads, or it will point at your real files. `tour_requires` still runs with your real home, before the sandbox exists.
-- **`key` is not available**: use `esc` and `typed`. (`wtype` types text and presses named keys; `esc` is Escape.)
-- **Coordinates** are the nested monitor's: `0,0` at its top-left, 1280×800. The bar is the real one, so it is as tall as yours.
+- **You can cancel it.** The red strip's **Cancel recording** stops the tour at once (within a step), throws the sandbox away, and turns the strip grey with "Recording cancelled"; nothing is kept. Ctrl+C in the terminal does the same, and so does the time limit (`TOUR_MAX_SECONDS`): the message says which one ended the run.
+- **You can watch it.** The session's own window sits on a far virtual monitor (20,000 px to the right), which no real pointer can reach. What you watch is a **view-only window** (`scripts/dev-view.qml`, window class `startappimage-test-viewer`) centred on your screen, showing the session five times a second. Drag, resize or cover it: your pointer is the normal arrow over it and nothing in it listens. (A visible nested window had let the nested compositor choose the cursor image under your pointer.)
+- **Your mouse and keyboard cannot reach it,** and it does not use them: the session also disables the two host input devices it is given (`wl_pointer`, `wl_keyboard`; `NEST_HOST_INPUT=1` keeps them), and the tour is driven by the virtual devices.
+- **It changes nothing of yours, and proves it.** The sandbox home holds copies; `TOUR_REAL_UNCHANGED` fingerprints the real files before and after.
+- **Nothing is left behind.** At the end everything the session started (its compositor, shell, its own D-Bus, file watchers), the view window and the far monitor are stopped or removed. The session has a D-Bus of its own that starts nothing by itself, so it does not launch portals that would crash and make Omarchy show a crash notice.
 
 ### What I know does not work or is untested
 
 - A first run builds the pointer client; if the build fails the recorder stops with that message.
-- Several monitors: the window and the status strip go on the monitor that was focused when you started. Not tested with more than one.
+- Several monitors: the strip and the view window go on the monitor that was focused when you started. Not tested with more than one.
 - The nested session is Hyprland-in-Hyprland. A compositor that is not Hyprland, or a Hyprland that changes its Lua configuration API, will need changes in `scripts/nested/session.sh`.
-- **Open issue, default mode:** a virtual-monitor run started right after a `--nested` run has sometimes recorded nothing (the app's window did not open; running again worked). The virtual-monitor code did not change and two virtual runs in a row are fine, but I have not found the cause. If you see a ~30 KB GIF, run it again.
 - In the install card the sandbox's home folder shows as its full path (`/home/you/Applications`) instead of `~/Applications`, because `$HOME` differs.
+- A tour file must not edit `scripts/tour.sh` while a run is going: bash reads a script as it runs, and a run is garbled by a change.
 
 ## Using it in another Start app
 
 The recorder has no StartAppImage in it. To use it for another app:
 
 1. Copy `scripts/tour.sh` into the app's repo (it will live in a shared repository when the Start apps get one, see "Shared UI code" in [ui-standards.md](ui-standards.md)).
-2. Write the app's tour file in its `scripts/tours/` (start from the minimal tour above, and copy `scripts/tours/hero.sh` for a worked example with `tour_prepare` and `tour_restore`).
+2. Copy `scripts/nested/` and `scripts/dev-view.qml` too (the session). Write the app's tour file in its `scripts/tours/` (start from the minimal tour above, and copy `scripts/tours/hero.sh` for a worked example with `tour_prepare`, `tour_sandbox` and `TOUR_REAL_UNCHANGED`).
 3. Set `TOUR_TITLE`, `TOUR_OUT` and `TOUR_LAYER`, find the coordinates, and run it without `--install` until it reads well.
 4. Add `screenshots/hero.avif` (or wherever `TOUR_OUT` points) to the app's README, and a line to its contributing notes about retaking it. Put the image in a `<picture>` so that clicking it does nothing:
 
@@ -295,7 +249,8 @@ Newest first. Moved here from the UI standards, since they are about the recorde
 
 | Date | Decision | Why |
 |---|---|---|
-| 2026-10-15 | `--nested` films a session on the far virtual monitor and shows it in a view-only window, with no confirmation step | The visible nested window let the nested compositor choose the cursor image under the pointer ("interacting weird"); nothing real is used, and Cancel is always on screen |
+| 2026-10-15 | The old mode (a virtual monitor filmed while the real mouse and keyboard were driven) is removed; the nested session is the only mode, with no `--nested`, `--yes`, `tour_restore` or `TOUR_RESTART_SHELL` | It took over the maintainer's input and changed the real app; the nested session does neither, and two modes doubled the code to keep working |
+| 2026-10-15 | The recorder films a session on the far virtual monitor and shows it in a view-only window, with no confirmation step | The visible nested window let the nested compositor choose the cursor image under the pointer ("interacting weird"); nothing real is used, and Cancel is always on screen |
 | 2026-10-15 | No shield over the nested window; the session disables the host pointer and keyboard instead, and the window is not pinned | The shield showed a block cursor and the window could not be dragged |
 | 2026-10-15 | `TOUR_REAL_UNCHANGED` fingerprints and a `TOUR_MAX_SECONDS` watchdog | A tour must prove it left the real files alone and must not run forever |
 | 2026-10-15 | The README hero sits in a `<picture>`, so GitHub does not turn it into a link to the image file | A click on the animation opened its file page, which is not what a viewer expects of a demo. GitHub links a bare `<img>`; not one in a `<picture>` |

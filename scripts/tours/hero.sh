@@ -6,30 +6,28 @@
 # to update; point an app at its GitHub releases; settings that apply at once (the check interval, the bar
 # icon, search); resize and move the window and find it where it was left.
 #
-# On the virtual monitor (the default) it changes the real app and puts it back; with --nested it runs in a sandbox and
-# changes nothing of yours. What it changes while it runs, and puts back: the manager's and the settings window's saved size and place
-# (reset to the defaults, so the shell is restarted), ArtCraft Launcher looking one version behind (the update
-# then downloads the real release, 12 MB, to the same file), the update check interval and the bar icon.
+# It runs in a sandbox (a nested session with copies of the app's data) and changes nothing of yours. In the sandbox it changes: the
+# manager's and the settings window's saved size and place (reset to the defaults), ArtCraft Launcher looking one version behind (the
+# update then downloads the real release, 12 MB, into the sandbox), the update check interval and the bar icon.
 # Needs the apps it uses installed in StartAppImage: ArtCraft Launcher (with a GitHub source) and PdfCraft.
 
 TOUR_TITLE=StartAppImage
 TOUR_OUT=screenshots/hero.avif
 TOUR_LAYER=omarchy-startappimage
 TOUR_STEPS=6
-TOUR_RESTART_SHELL=1            # virtual monitor mode: the shell reads the reset window sizes at start
 
-# --nested mode: this plugin runs in a sandbox, with copies of the app's data (and of ArtCraft's AppImage, so the
+# This plugin runs in the sandbox, with copies of the app's data (and of ArtCraft's AppImage, so the
 # update the tour performs cannot touch your real one). Your real settings and files are never changed.
 TOUR_PLUGIN_ID=io.github.bmaltais.startappimage
 TOUR_SANDBOX_COPY=(.local/share/startappimage .local/share/applications)
 TOUR_SANDBOX_LINK=(.local/share/icons)
-# With --nested the recorder proves the tour touched none of these (it fails the run if one changed).
+# The recorder proves the tour touched none of these (it fails the run if one changed).
 TOUR_REAL_UNCHANGED=(.config/omarchy/shell.json .config/startappimage .local/share/startappimage Applications)
 
 ID=io.github.bmaltais.startappimage
 CLI=$HOME/.config/omarchy/plugins/$ID/bin/startappimage
 APPIMG=$(ls "$HOME"/Applications/pdfcraft-*.AppImage 2>/dev/null | head -n1)
-# Worked out when used, so that in --nested mode (where HOME is the sandbox) it is the sandbox's.
+# Worked out when used, so that (HOME being the sandbox) it is the sandbox's.
 artenv() { echo "$HOME/.local/share/startappimage/artcraft-launcher.env"; }
 
 tour_requires() {
@@ -53,10 +51,7 @@ tour_sandbox() {
 }
 
 tour_prepare() {
-  orig_win=$("$CLI" window)
-  orig_info=$("$CLI" integration)
-  cp "$(artenv)" "$TMP/artcraft.env"
-  # Both windows start where the defaults put them (virtual monitor mode restarts the shell to pick that up).
+  # Both windows start where the defaults put them.
   "$CLI" window --reset >/dev/null
   "$CLI" window --reset-setup >/dev/null
 }
@@ -64,16 +59,6 @@ tour_prepare() {
 tour_setup() {
   # ArtCraft looks one version behind, so the tour has something to update.
   sed -i 's/^VERSION=.*/VERSION=v0.4.0/' "$(artenv)"
-}
-
-# Virtual monitor mode only: put back what the tour changed (nested mode changed nothing of yours).
-tour_restore() {
-  omarchy-shell -q $ID close 2>/dev/null
-  cp "$TMP/artcraft.env" "$(artenv)"
-  "$CLI" setup --bar-icon "$(jq -r .barIcon <<<"$orig_info")" --check-hours "$(jq -r .checkHours <<<"$orig_info")" >/dev/null 2>&1
-  "$CLI" window --size "$(jq -r '"\(.w)x\(.h)"' <<<"$orig_win")" --offset "$(jq -r '"\(.x),\(.y)"' <<<"$orig_win")" \
-    --setup-size "$(jq -r '"\(.setup.w)x\(.setup.h)"' <<<"$orig_win")" --setup-offset "$(jq -r '"\(.setup.x),\(.setup.y)"' <<<"$orig_win")" >/dev/null 2>&1
-  "$CLI" check >/dev/null 2>&1
 }
 
 tour_play() {

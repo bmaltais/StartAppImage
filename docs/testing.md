@@ -9,7 +9,7 @@ How a change gets checked, from the cheapest check to trying it in a live shell.
 | watch that session | `scripts/dev watch` | a view-only window |
 | try it on your own shell | `scripts/reload`, `scripts/pointer.sh` | yes: restarts your shell, moves your pointer |
 | look over a recording | `scripts/sheet` | no |
-| record the README animation | `scripts/hero.sh` ([recording-tours.md](recording-tours.md)) | `--nested`: no |
+| record the README animation | `scripts/hero.sh` ([recording-tours.md](recording-tours.md)) | no |
 
 **The rule: test in `scripts/dev`, not on the real desktop.** A click or key sent to the real shell moves your pointer and types into your windows, a shell restart makes the bar blink, and a window left over your pointer can leave it behaving oddly. The test session has none of that. Use `reload` and `pointer.sh` only when the person asks to see it on their real shell.
 
@@ -82,7 +82,7 @@ scripts/dev ──► scripts/nested/session.sh ──► Hyprland (nested) ─�
    └─ errors ─────────────► the session's shell log, filtered
 ```
 
-- **`scripts/nested/session.sh`** is shared with the recorder (`scripts/tour.sh --nested`). It builds the sandbox home (Omarchy's themes copied, a `shell.json` that keeps your bar layout but only Omarchy's own widgets plus this plugin, the plugin linked to the checkout, copies of the app's data), starts the nested Hyprland under its own D-Bus that starts nothing, and stops everything it started.
+- **`scripts/nested/session.sh`** is shared with the recorder (`scripts/tour.sh`). It builds the sandbox home (Omarchy's themes copied, a `shell.json` that keeps your bar layout but only Omarchy's own widgets plus this plugin, the plugin linked to the checkout, copies of the app's data), starts the nested Hyprland under its own D-Bus that starts nothing, and stops everything it started.
 - **Input.** `scripts/nested/vptr.c` is a tiny client of the `wlr-virtual-pointer` protocol (built on first use into the session's folder). Keys use `wtype`. Both talk to the nested compositor's socket, so nothing reaches your real seat.
 - **Your mouse and keyboard are switched off inside the session.** The host seat gives the nested compositor two devices, `wl_pointer` and `wl_keyboard`; its config disables both (`hl.device({ name = ..., enabled = false })`). The virtual devices are separate and keep working. This was checked with a control: the same real click closes a card when the devices are left on (`NEST_HOST_INPUT=1`) and does nothing when they are off.
 - **The far monitor.** `up` creates a headless monitor `DEVTEST` 20,000 px to the right and moves the window there. Sliding a mouse off the edge of your screen stops at the edge, so the window cannot be reached. `down` removes the monitor.

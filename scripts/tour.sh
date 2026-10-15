@@ -2,24 +2,19 @@
 # Records an app's tour as a GIF: a short story of using it, with a caption for each step. The same
 # recorder serves every Start app; each app supplies a tour file that says what to do.
 #
-#   scripts/tour.sh TOURFILE [--install] [--yes] [--nested]
+#   scripts/tour.sh TOURFILE [--install]
 #
 #   TOURFILE    a bash file that defines the tour (see "Writing a tour" below), e.g. scripts/tours/hero.sh
 #   --install   copy the result to the tour's TOUR_OUT in the repo (default: leave it in $TMPDIR and say where)
-#   --yes       do not ask first (for when it is run from another script); --nested never asks
-#   --nested    run the tour in a nested session shown in a window on your screen, instead of on a hidden virtual
-#               monitor: you can watch it, your mouse and keyboard cannot reach it, and it changes only a sandbox,
-#               never your real settings or files. See scripts/nested/session.sh and docs/recording-tours.md.
 #
-# How it works. It films a temporary virtual monitor frame by frame with grim, so your own screen is left
-# alone, puts a plain backdrop on it, and drives the real pointer and keyboard with ydotool to click through
-# the app there. Hands off the mouse and keyboard while it runs: the pointer is on the virtual monitor and
-# typing goes to it. So you know, a red window in the middle of your real screen first asks you to confirm
-# (Proceed or Cancel) and then stays up saying so, with the step it is on, until it says it is done (a
-# notification would show on the virtual monitor, and in the GIF). Whatever the tour changes is put back when
-# it ends or is interrupted.
-# Needs: hyprctl (Hyprland), jq, grim, ffmpeg (with drawtext), ImageMagick, imv, quickshell, and ydotool with its
-# daemon running and a writable /dev/uinput (not for --nested, which needs wtype, gcc and wayland-scanner instead).
+# How it works. The tour runs in a nested session: a second Hyprland with its own Omarchy shell and this plugin, in a
+# sandbox home with copies of the app's data, driven over its own Wayland socket with a virtual pointer and keyboard. It is
+# filmed frame by frame with grim. Your mouse and keyboard are free and nothing of yours is changed. The session's own window
+# sits on a virtual monitor out of reach of your pointer; you watch it in a view-only window on your screen, under a red
+# status strip with a Cancel recording button (Ctrl+C also cancels, and so does TOUR_MAX_SECONDS). When it ends, is
+# cancelled or fails, everything it started is stopped. See scripts/nested/session.sh.
+# Needs: hyprctl (Hyprland), jq, grim, ffmpeg (with drawtext), ImageMagick, quickshell, wtype, and gcc, wayland-scanner
+# and pkg-config with the Wayland client library (to build the pointer client).
 # docs/recording-tours.md is the guide.
 #
 # Writing a tour. A tour file is sourced by this script and defines:
@@ -29,50 +24,43 @@
 #     TOUR_OUT           the result's path in the repo; its extension picks the format, .avif (animated AVIF, small) or
 #                        .gif                                                       (default screenshots/hero.avif)
 #     TOUR_LAYER         the layer-shell namespace of the app's window; keys and typing are only sent while
-#                        it is up on the virtual monitor, so they never reach anything else   (required to use key/typed/esc)
+#                        it is up in the session, so they never reach anything else           (required to use typed/esc)
 #     TOUR_STEPS         how many steps (calls to `cap`) it has, for "Step 2 of 6"   (optional)
-#     TOUR_SIZE          the virtual monitor, WxH           (default 1280x800)
-#     TOUR_BG            the backdrop colour                (default #262a36)
-#     TOUR_REAL_UNCHANGED  with --nested: paths under your real $HOME (files or folders) that the tour must not touch. They are
+#     TOUR_SIZE          the session's screen, WxH         (default 1280x800)
+#     TOUR_BG            with TOUR_BACKDROP=plain, the backdrop colour  (default #262a36)
+#     TOUR_REAL_UNCHANGED  paths under your real $HOME (files or folders) that the tour must not touch. They are
 #                        fingerprinted (name, size, modification time) before and after, and the run fails, keeping nothing, if
 #                        any changed. e.g. (.config/omarchy/shell.json .local/share/myapp)
 #     TOUR_MAX_SECONDS   stop a tour that runs longer than this, as a stuck step would (default 300)
-#     TOUR_RESTART_SHELL 1 to restart the Omarchy shell after tour_prepare and again at the end, for tours
-#                        whose changes the shell only reads at start     (default 0)
 #     TOUR_FONT          the caption font file              (default JetBrains Mono Nerd Font Bold)
 #
 #   Functions (all optional except tour_play)
 #     tour_requires      check what the tour needs; print a reason and return non-zero if it is missing
-#     tour_prepare       save what the tour will change, and set up; runs before the first restart
-#     tour_setup         runs once the monitor is up and focused, just before filming starts
-#     tour_restore       put back whatever tour_prepare/tour_setup/tour_play changed
+#     tour_prepare       set up the sandbox (HOME is the sandbox's); runs before the session starts
+#     tour_setup         runs once the session is up, just before filming starts
 #     tour_play          the steps, using the helpers below
 #
-#   Helpers for tour_play (coordinates are on the virtual monitor, 0,0 at its top-left)
+#   Helpers for tour_play (coordinates are the session's screen, 0,0 at its top-left)
 #     cap "text"         show this caption from now until the next cap (avoid colons and apostrophes)
 #     glide X Y          move the pointer there, in small steps so it is seen to travel
 #     click X Y [pause]  glide, click, then wait (default 0.9 s)
 #     drag DX DY         press where the pointer is, move by that much, let go
-#     typed "text"       type it     key CODE:1 CODE:0 ...   press keys     esc   press Escape
+#     typed "text"       type it     esc   press Escape
 #     wait_until 'cmd' [seconds]    poll a shell command until it succeeds (default 30 s)
-#     MON MX W H TMP REPO           the monitor's name, its x in the layout, its size, a scratch folder, the repo root
+#     W H TMP REPO       the session's size, a scratch folder, the repo root
 set -u
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 tourfile=${1:-}
 install=false
-ask=true
-NESTED=false
 for arg in "${@:2}"; do
   case $arg in
     --install) install=true ;;
-    --yes) ask=false ;;
-    --nested) NESTED=true ;;
     *) echo "tour: unknown option $arg" >&2; exit 2 ;;
   esac
 done
-[[ -f $tourfile ]] || { echo "tour: usage: scripts/tour.sh TOURFILE [--install] [--yes] [--nested]" >&2; exit 2; }
+[[ -f $tourfile ]] || { echo "tour: usage: scripts/tour.sh TOURFILE [--install]" >&2; exit 2; }
 tourfile=$(cd "$(dirname "$tourfile")" && pwd)/$(basename "$tourfile")
 
 # shellcheck disable=SC1090
@@ -85,31 +73,27 @@ source "$tourfile"
 : "${TOUR_RESTART_SHELL:=0}"
 : "${TOUR_MAX_SECONDS:=300}"
 declare -p TOUR_REAL_UNCHANGED >/dev/null 2>&1 || TOUR_REAL_UNCHANGED=()
-REAL_HOME=$HOME   # before --nested swaps HOME for the sandbox's
+REAL_HOME=$HOME   # before the sandbox swaps HOME
 : "${TOUR_FONT:=/usr/share/fonts/TTF/JetBrainsMonoNerdFont-Bold.ttf}"
 declare -F tour_play >/dev/null || { echo "tour: the tour file must define tour_play" >&2; exit 2; }
 
-MON=TOURREC
 W=${TOUR_SIZE%x*}
 H=${TOUR_SIZE#*x}
-for tool in hyprctl jq grim ffmpeg ffprobe magick imv quickshell notify-send; do
+for tool in hyprctl jq grim ffmpeg ffprobe magick quickshell notify-send; do
   command -v "$tool" >/dev/null || { echo "tour: $tool is needed" >&2; exit 1; }
 done
-$NESTED || command -v ydotool >/dev/null || { echo "tour: ydotool is needed (or use --nested)" >&2; exit 1; }
+[[ ${TOUR_BACKDROP:-wallpaper} == plain ]] && ! command -v imv >/dev/null && { echo "tour: imv is needed for TOUR_BACKDROP=plain" >&2; exit 1; }
 if declare -F tour_requires >/dev/null; then tour_requires || exit 1; fi
 
 TMP=$(mktemp -d)
 mkdir -p "$TMP/frames"
-if $NESTED; then
-  # shellcheck source=nested/session.sh
-  source "$HERE/nested/session.sh"
-  nested_requires || exit 1
-fi
+# shellcheck source=nested/session.sh
+source "$HERE/nested/session.sh"
+nested_requires || exit 1
 
-# ---- the window that asks, and then says it is recording ----------------------------------------
-# scripts/tour-banner.qml, run with quickshell: a red window in the middle of the real screen. It redraws in
-# place, so it does not flicker. (The shell's notifications and Hyprland's own appear on the focused
-# monitor, which is the virtual one while recording, so they would end up in the GIF.)
+# ---- the window that says it is recording ----------------------------------------
+# scripts/tour-banner.qml, run with quickshell: a red strip along the top of your screen with a Cancel button. It redraws
+# in place, so it does not flicker.
 banner_qml="$HERE/tour-banner.qml"
 status="$TMP/status.txt"
 orig_mon=$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name')
@@ -121,17 +105,7 @@ say() { # [STATE] TEXT: the step it is on. STATE is starting, encoding, cancelle
   printf '%s\n%s\n' "$state" "$*" >"$status.new"
   mv "$status.new" "$status"
 }
-confirm() { # asks; returns non-zero if the answer is not Proceed
-  local answer="$TMP/answer.txt" qpid
-  rm -f "$answer"
-  TOUR_MODE=confirm TOUR_TITLE=$TOUR_TITLE TOUR_SCREEN=$orig_mon TOUR_ANSWER=$answer \
-    quickshell -n -p "$banner_qml" >/dev/null 2>&1 &
-  qpid=$!
-  while [[ ! -s $answer ]] && kill -0 "$qpid" 2>/dev/null; do sleep 0.2; done
-  wait "$qpid" 2>/dev/null
-  [[ $(cat "$answer" 2>/dev/null) == proceed ]]
-}
-# Your real home and XDG directories, as they are now: in --nested mode the sandbox's replace them, and this window
+# Your real home and XDG directories, as they are now: the sandbox's replace them in the session, and this window
 # must not carry those (it would be taken for part of the nested session and stopped with it).
 real_home=$HOME
 real_xdg_config=${XDG_CONFIG_HOME:-$HOME/.config}
@@ -139,33 +113,21 @@ real_xdg_data=${XDG_DATA_HOME:-$HOME/.local/share}
 real_xdg_state=${XDG_STATE_HOME:-$HOME/.local/state}
 real_xdg_cache=${XDG_CACHE_HOME:-$HOME/.cache}
 start_banner() {
-  local nested_flag=0
-  $NESTED && nested_flag=1
-  say starting "Starting the nested desktop..."
+  say starting "Starting the test session..."
   env HOME="$real_home" XDG_CONFIG_HOME="$real_xdg_config" XDG_DATA_HOME="$real_xdg_data" \
     XDG_STATE_HOME="$real_xdg_state" XDG_CACHE_HOME="$real_xdg_cache" \
-    TOUR_MODE=status TOUR_TITLE=$TOUR_TITLE TOUR_SCREEN=$orig_mon TOUR_STATUS=$status TOUR_ANSWER="$TMP/cancel.txt" \
-    TOUR_NESTED=$nested_flag \
+    TOUR_TITLE=$TOUR_TITLE TOUR_SCREEN=$orig_mon TOUR_STATUS=$status TOUR_ANSWER="$TMP/cancel.txt" \
     TOUR_STRIP_GAP=${NEST_STRIP_GAP:-24} TOUR_STRIP_H=${NEST_STRIP_H:-170} \
     quickshell -n -p "$banner_qml" >/dev/null 2>&1 &
   banner_pid=$!
   # The Cancel button writes to a file; this ends the run when it does (which puts everything back, see cleanup).
-  if $NESTED; then
-    ( while [[ ! -s $TMP/cancel.txt ]]; do sleep 0.3; done; kill -TERM $$ 2>/dev/null ) &
-    cancel_watch=$!
-  fi
+  ( while [[ ! -s $TMP/cancel.txt ]]; do sleep 0.3; done; kill -TERM $$ 2>/dev/null ) &
+  cancel_watch=$!
   sleep 1
-  # Putting the window up moves focus to the real screen; the app must open on the virtual one.
-  $NESTED || hyprctl dispatch "hl.dsp.focus({ monitor = \"$MON\" })" >/dev/null
 }
-# --nested needs no confirmation: it does not use your mouse or keyboard, changes nothing of yours, and shows a Cancel button.
-if $ask && ! $NESTED; then
-  confirm || { echo "tour: cancelled, nothing was changed." >&2; rm -rf "$TMP"; exit 0; }
-fi
-if $NESTED; then echo "tour: recording in a test session (your mouse and keyboard are free; Cancel recording stops it)." >&2
-else echo "tour: recording. Leave the mouse and keyboard alone until it says it is done." >&2; fi
+echo "tour: recording in a test session (your mouse and keyboard are free; Cancel recording stops it)." >&2
 
-# ---- proving a nested tour touched nothing of yours ----------------------------------------------------
+# ---- proving the tour touched nothing of yours ----------------------------------------------------
 # A fingerprint of each TOUR_REAL_UNCHANGED path: file name, size and modification time. Taken before the sandbox exists and
 # again once the nested session is gone; any difference is named and fails the run.
 real_listing() {
@@ -175,7 +137,7 @@ real_listing() {
   done | sort
 }
 verify_real() {
-  $NESTED && ((${#TOUR_REAL_UNCHANGED[@]} > 0)) || return 0
+  ((${#TOUR_REAL_UNCHANGED[@]} > 0)) || return 0
   real_listing >"$TMP/real.after"
   if cmp -s "$TMP/real.before" "$TMP/real.after"; then
     echo "tour: your real files are unchanged ($(wc -l <"$TMP/real.after") checked)" >&2
@@ -186,18 +148,16 @@ verify_real() {
     exit 1
   fi
 }
-if $NESTED && ((${#TOUR_REAL_UNCHANGED[@]} > 0)); then real_listing >"$TMP/real.before"; fi
+if ((${#TOUR_REAL_UNCHANGED[@]} > 0)); then real_listing >"$TMP/real.before"; fi
 
 # ---- putting everything back --------------------------------------------------------------------
-read -r orig_cx orig_cy < <(hyprctl cursorpos -j | jq -r '"\(.x) \(.y)"')
 rec_pid=""
 bg_pid=""
 released=false
 abort_reason=""
 cancel_watch=""
 watchdog=""
-# Gives you your screen, mouse and keyboard back: stops filming, ends the nested session or puts the real app and the
-# virtual monitor back. Done as soon as the filming stops, not after the GIF is built.
+# Ends filming and the nested session, and closes the view window. Done as soon as the filming stops, not after the GIF is built.
 release() {
   $released && return
   released=true
@@ -206,33 +166,22 @@ release() {
   [[ -n $rec_pid ]] && kill "$rec_pid" 2>/dev/null
   rec_pid=""
   [[ -n $bg_pid ]] && kill "$bg_pid" 2>/dev/null
-  if $NESTED; then
-    # Only the sandbox was changed, and it is thrown away with the session: nothing of yours to put back.
-    nested_view_close
-    rm -f "$TMP/view.live"
-    nested_stop
-    nested_far_down
-  else
-    if declare -F tour_restore >/dev/null; then tour_restore; fi
-    hyprctl output remove $MON >/dev/null 2>&1
-    hyprctl dispatch "hl.dsp.focus({ monitor = \"$orig_mon\" })" >/dev/null 2>&1
-    hyprctl dispatch "hl.dsp.cursor.move({ x = $orig_cx, y = $orig_cy })" >/dev/null 2>&1
-    if [[ $TOUR_RESTART_SHELL == 1 ]]; then
-      omarchy-restart-shell >/dev/null 2>&1
-      sleep 7
-    fi
-  fi
+  # Only the sandbox was changed, and it is thrown away with the session: nothing of yours to put back.
+  nested_view_close
+  rm -f "$TMP/view.live"
+  nested_stop
+  nested_far_down
 }
 cleanup() {
   release
   if [[ -n $abort_reason ]]; then
     say cancelled "Stopped"
-    notify-send -a "$TOUR_TITLE tour" -u normal -t 8000 "The $TOUR_TITLE tour was stopped" "$abort_reason. You can use the mouse and keyboard again." 2>/dev/null
+    notify-send -a "$TOUR_TITLE tour" -u normal -t 8000 "The $TOUR_TITLE tour was stopped" "$abort_reason. " 2>/dev/null
     echo "tour: stopped, $abort_reason." >&2
   else
     # Green, "the tour is done", for a few seconds; then the window goes.
     say "done"
-    notify-send -a "$TOUR_TITLE tour" -u normal -t 8000 "The $TOUR_TITLE tour is done" "You can use the mouse and keyboard again." 2>/dev/null
+    notify-send -a "$TOUR_TITLE tour" -u normal -t 8000 "The $TOUR_TITLE tour is done" "The recording is saved." 2>/dev/null
   fi
   sleep 6
   [[ -n $banner_pid ]] && kill "$banner_pid" 2>/dev/null
@@ -244,61 +193,33 @@ trap 'abort_reason="cancelled (the Cancel button or Ctrl+C); nothing was kept"; 
 trap 'abort_reason="it ran past TOUR_MAX_SECONDS (${TOUR_MAX_SECONDS}s); nothing was kept"; exit 124' USR1
 
 magick -size "${W}x${H}" "xc:$TOUR_BG" "$TMP/bg.png"
-if $NESTED; then
-  # ---- a nested session in a window, in a sandbox --------------------------------------------------
-  prev_focus=$(hyprctl activewindow -j | jq -r '.address // empty')
-  sandbox_build || exit 1
-  sandbox_enter
-  if declare -F tour_prepare >/dev/null; then tour_prepare; fi
-  FAR_MON=TOURTEST
-  nested_far_up
-  nested_start || exit 1
-  nested_send_away "$prev_focus"
-  start_banner
-  nested_wait_ready
-  echo live >"$TMP/view.live"
-  nested_view_open "$TMP/view.live" || exit 1
-  nested_enter
-  CAPMON=$NMON
-  # The nested shell draws the theme's wallpaper, so it looks like a real Omarchy desktop. TOUR_BACKDROP=plain
-  # puts the flat TOUR_BG colour over it instead (as the virtual monitor mode always does).
-  if [[ ${TOUR_BACKDROP:-wallpaper} == plain ]]; then
-    imv -f "$TMP/bg.png" >/dev/null 2>&1 &
-    bg_pid=$!
-  fi
-  sleep 1.5
-  if declare -F tour_setup >/dev/null; then tour_setup; fi
-else
-# ---- the virtual monitor, and a plain backdrop on it ------------------------------------------------
-MX=$(hyprctl monitors -j | jq -r '[.[] | .x + .width] | max')
-hyprctl output create headless $MON >/dev/null
-hyprctl eval "hl.monitor({ output = \"$MON\", mode = \"${W}x${H}@60\", position = \"${MX}x0\", scale = 1 })" >/dev/null
-sleep 1
-hyprctl dispatch "hl.dsp.focus({ monitor = \"$MON\" })" >/dev/null
-imv -f "$TMP/bg.png" >/dev/null 2>&1 &
-bg_pid=$!
-sleep 1.5
-start_banner
-
+# ---- a nested session on a far monitor, in a sandbox, shown in a view window ---------------------------
+prev_focus=$(hyprctl activewindow -j | jq -r '.address // empty')
+sandbox_build || exit 1
+sandbox_enter
 if declare -F tour_prepare >/dev/null; then tour_prepare; fi
-if [[ $TOUR_RESTART_SHELL == 1 ]]; then
-  omarchy-restart-shell >/dev/null 2>&1
-  sleep 8
-  hyprctl dispatch "hl.dsp.focus({ monitor = \"$MON\" })" >/dev/null
-  sleep 0.5
+FAR_MON=TOURTEST
+nested_far_up
+nested_start || exit 1
+nested_send_away "$prev_focus"
+start_banner
+nested_wait_ready
+echo live >"$TMP/view.live"
+nested_view_open "$TMP/view.live" || exit 1
+nested_enter
+CAPMON=$NMON
+# The nested shell draws the theme's wallpaper, so it looks like a real Omarchy desktop. TOUR_BACKDROP=plain
+# puts the flat TOUR_BG colour over it instead.
+if [[ ${TOUR_BACKDROP:-wallpaper} == plain ]]; then
+  imv -f "$TMP/bg.png" >/dev/null 2>&1 &
+  bg_pid=$!
 fi
+sleep 1.5
 if declare -F tour_setup >/dev/null; then tour_setup; fi
-  CAPMON=$MON
-fi
 
 # ---- driving the pointer and keys -------------------------------------------------------------
 gx=$((W / 2)); gy=$((H / 2))
-at() {
-  if $NESTED; then nest_at "$1" "$2"
-  else hyprctl dispatch "hl.dsp.cursor.move({ x = $((MX + $1)), y = $2 })" >/dev/null; ydotool mousemove -x 1 -y 0; ydotool mousemove -x -1 -y 0
-  fi
-  gx=$1; gy=$2
-}
+at() { nest_at "$1" "$2"; gx=$1; gy=$2; }
 
 # ---- human-like input -------------------------------------------------------------------------------
 # A person does not move in straight lines at a steady speed or type like a metronome. With TOUR_HUMAN=1 (the default)
@@ -379,25 +300,12 @@ click() {
   glide "$1" "$2"
   if [[ $HUMAN == 1 ]]; then sleep "$(rnd 0.15 0.45)"; else sleep 0.35; fi
   # Clicks where the pointer is, which a person lands within a pixel or two of the target.
-  if $NESTED; then nest_click "$gx" "$gy"; else ydotool click 0xC0 >/dev/null; fi
+  nest_click "$gx" "$gy"
   sleep "${3:-0.9}"
 }
 drag() {
   lead_wait
-  if $NESTED; then nest_drag "$1" "$2"; sleep 0.6; return; fi
-  local i f px=0 py=0 nx ny
-  ydotool click 0x40 >/dev/null; sleep "$([[ $HUMAN == 1 ]] && rnd 0.12 0.3 || echo 0.2)"
-  for i in 1 2 3 4 5 6 7 8 9 10; do
-    if [[ $HUMAN == 1 ]]; then
-      f=$(awk -v i="$i" 'BEGIN { t = i / 10; printf "%.4f", t * t * (3 - 2 * t) }')
-      nx=$(awk -v d="$1" -v f="$f" 'BEGIN { printf "%d", d * f }'); ny=$(awk -v d="$2" -v f="$f" 'BEGIN { printf "%d", d * f }')
-      ydotool mousemove -x $((nx - px)) -y $((ny - py)) >/dev/null; px=$nx; py=$ny
-      sleep "$(rnd 0.035 0.075)"
-    else
-      ydotool mousemove -x $(($1 / 10)) -y $(($2 / 10)) >/dev/null; sleep 0.05
-    fi
-  done
-  sleep 0.2; ydotool click 0x80 >/dev/null; sleep 0.6
+  nest_drag "$1" "$2"; sleep 0.6
 }
 # Typing, a character at a time. Each gap is log-normal (right-skewed, never under about 60 ms), around 140 ms for a
 # fairly fast typist; a little quicker when the next key is under the other hand and slower after a space, when a person
@@ -427,31 +335,20 @@ type_chars() { # TEXT SENDER... : the sender is called with each character
   done
 }
 _wtype_one() { WAYLAND_DISPLAY=$NWD wtype -- "$1"; }
-_ydotool_one() { ydotool type -- "$1" >/dev/null; }
-# Keys and typing only while the app's window is up on the virtual monitor: otherwise they would go to the
-# backdrop window.
+# Keys and typing only while the app's window is up in the session: otherwise they would go to whatever else is there.
 overlay_up() {
   [[ -n $TOUR_LAYER ]] || return 1
   hyprctl layers -j | jq -e --arg m "$CAPMON" --arg ns "$TOUR_LAYER" '.[$m] | [.. | .namespace? // empty] | any(. == $ns)' >/dev/null 2>&1
 }
-# key takes ydotool key codes (not in --nested mode: use esc and typed there).
-key() {
-  $NESTED && { echo "tour: key is not available with --nested, use esc or typed" >&2; return 1; }
-  if overlay_up; then ydotool key "$@" >/dev/null; else echo "tour: window not up, skipped keys $*" >&2; fi
-}
 typed() {
   lead_wait
   if ! overlay_up; then echo "tour: window not up, skipped typing" >&2; return; fi
-  if [[ $HUMAN == 1 ]]; then
-    if $NESTED; then type_chars "$1" _wtype_one; else type_chars "$1" _ydotool_one; fi
-  elif $NESTED; then nest_type "$1"
-  else ydotool type --key-delay 45 "$1" >/dev/null
-  fi
+  if [[ $HUMAN == 1 ]]; then type_chars "$1" _wtype_one; else nest_type "$1"; fi
 }
 esc() {
   lead_wait
   if ! overlay_up; then echo "tour: window not up, skipped keys esc" >&2; return; fi
-  if $NESTED; then nest_key Escape; else ydotool key 1:1 1:0 >/dev/null; fi
+  nest_key Escape
 }
 wait_until() { local i; for ((i = 0; i < ${2:-30} * 2; i++)); do eval "$1" >/dev/null 2>&1 && return 0; sleep 0.5; done; return 1; }
 
@@ -510,7 +407,7 @@ tour_play
 hold_wait
 kill "$rec_pid" 2>/dev/null; wait "$rec_pid" 2>/dev/null
 rec_pid=""
-# Filming is over: give the screen, mouse and keyboard back now, and say that the GIF is being built.
+# Filming is over: end the session now, and say that the animation is being built.
 release
 verify_real
 say encoding "Building the result..."
