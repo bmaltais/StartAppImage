@@ -553,7 +553,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         height: Style.space(60)
-        cursorShape: pressed ? Qt.ClosedHandCursor : Qt.ArrowCursor
+        cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
         property real pressX: 0
         property real pressY: 0
         onPressed: function (mouse) { pressX = mouse.x; pressY = mouse.y }
