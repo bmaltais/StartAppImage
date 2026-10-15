@@ -17,7 +17,7 @@
 | `Chip.qml`, `Field.qml` | A selectable choice and a text field |
 | `bin/startappimage` | The command line: install, list, update, remove, settings. It is the only part that touches files |
 | `assets/` | The launcher icon |
-| `screenshots/`, `preview.png` | Images used by the README and the plugin preview; retake them with `scripts/screenshots.sh`, then `scripts/preview.sh` |
+| `screenshots/`, `preview.png` | Images used by the README and the plugin preview; retake them with `scripts/screenshots.sh` (it runs in the nested test session, see [docs/testing.md](docs/testing.md)), then `scripts/preview.sh` |
 | `scripts/tour.sh`, `scripts/tour-banner.qml`, `scripts/nested/`, `scripts/tours/` | The tour recorder, and this app's tour. `screenshots/hero.avif` (the animation at the top of the README) is retaken with `scripts/hero.sh --install` when a step of the tour changes. The recorder is app-agnostic: another Start app supplies its own tour file. See `docs/recording-tours.md` |
 | `scripts/check.sh`, `lint-sh.sh`, `lint-qml.py`, `.githooks/`, `.github/workflows/check.yml` | The checks, the pre-commit hook (`git config core.hooksPath .githooks` once per clone; it refuses commits on `main`) and the CI job |
 | `scripts/dev`, `dev-view.qml`, `reload`, `pointer.sh`, `sheet` | Testing tools: a nested test session, the real-shell reload, a pointer click, contact sheets. See `docs/testing.md` |

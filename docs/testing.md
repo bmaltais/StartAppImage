@@ -34,7 +34,7 @@ omarchy plugin validate . # the manifest
 A second Hyprland with its own Omarchy shell, running this checkout as the plugin, driven over its own Wayland socket. `scripts/dev --help` is the reference; this is the shape of a session:
 
 ```sh
-scripts/dev up                       # 2 s. a nested desktop, out of your mouse's reach
+scripts/dev up                       # 2 s. a nested desktop, out of your mouse's reach, and a window showing it live
 scripts/dev open                     # open the manager there (setup, settings APP_ID, close)
 scripts/dev shot /tmp/a.png          # screenshot it, then look at the file
 scripts/dev click 536 146            # click the pixel you saw in the screenshot
@@ -42,21 +42,24 @@ scripts/dev type "pdf"               # type; scripts/dev key Escape for a named 
 scripts/dev errors                   # what the plugin logged, noise removed (0 = clean)
 # edit a .qml file ...
 scripts/dev reload                   # 4 s. restarts the nested shell only; loads uncommitted files
-scripts/dev watch                    # optional: a window showing the session live
 scripts/dev down                     # always, when done
 ```
 
 Every command prints one line and exits non-zero when it did not do what it says (`dev reload FAILED ... qml-errors 2`, `dev open: the window did NOT open`).
 
-- **Pixels** are the session's screen, 1280×800, 0,0 at the top-left, exactly as in a `dev shot`. Read the pixel off the screenshot and click it; nothing is scaled or offset.
+- **Pixels** are the session's screen, 1280×800 by default (`DEV_SIZE=1920x1200 scripts/dev up` for a larger one), 0,0 at the top-left, exactly as in a `dev shot`. Read the pixel off the screenshot and click it; nothing is scaled or offset.
 - **A click outside the card closes it**, as it would for a person: screenshot before you click.
 - **No commit or push is needed.** The plugin in the session is a link to this checkout, so `reload` loads what is on disk. (Your real shell is different: its plugin is a separate clone, see section 3.)
 - **It closes itself** after `DEV_TTL` seconds (default 1800), and a stale session is cleaned up by the next `up`. End it yourself with `down`: the session holds a virtual monitor and about a dozen processes.
 - **Your data is safe.** The session has a home of its own (`$XDG_RUNTIME_DIR/startappimage-dev/nest/home`) with *copies* of the app's data, so installing, updating, removing and renaming there never touch your apps. Its bar starts with a "TEST SESSION" label, because the window's own title is fixed by the nested compositor ("aquamarine - WAYLAND-N") and the desktop inside looks exactly like yours.
 
+### Retaking the README screenshots: `scripts/screenshots.sh`
+
+Runs the whole thing in the session: `up` (with `DEV_SIZE` if you want another screen), window sizes reset in the sandbox, a flat backdrop window behind the cards, `open`, `setup`, `settings`, the install card, `shot` of each, a crop centred on the screen, then `down`. `SHOTS_OUT=DIR` writes elsewhere, for a trial run. The install card needs an `~/Applications` of the session's own, which the script builds, so it shows `~/Applications` and not your home.
+
 ### Watching it: `scripts/dev watch`
 
-Opens an ordinary window (`scripts/dev-view.qml`) that shows the session five times a second. Drag it, cover it, resize it, send it to the scratchpad: your pointer is the normal arrow over it and a click does nothing, because nothing in it listens. `scripts/dev unwatch` closes it. It ends with the session.
+`up` opens it (`DEV_WATCH=0 scripts/dev up` for none; `dev watch` opens it later). It is an ordinary window (`scripts/dev-view.qml`) that shows the session five times a second. Drag it, cover it, resize it, send it to the scratchpad: your pointer is the normal arrow over it and a click does nothing, because nothing in it listens. `scripts/dev unwatch` closes it. It ends with the session. It shows the session's whole screen, so it looks empty until a plugin window is open (`dev open`).
 
 The session's *own* window is never put on your screen. That was tried and it was wrong: see "What went wrong" below.
 
