@@ -14,6 +14,7 @@ Item {
   property bool handler: true
   property bool cli: true
   property int hours: 6
+  property bool barIcon: false
   property bool rsize: true
   property bool rpos: true
 
@@ -34,6 +35,7 @@ Item {
       view.handler = i.handler.ours
       view.cli = i.cli.state === "ours"
       view.hours = i.checkHours
+      view.barIcon = i.barIcon
       view.rsize = i.rememberSize
       view.rpos = i.rememberPosition
     } else {
@@ -41,6 +43,7 @@ Item {
       view.handler = true
       view.cli = !view.cliBlocked
       view.hours = 6
+      view.barIcon = false
       view.rsize = true
       view.rpos = true
     }
@@ -143,6 +146,19 @@ Item {
       }
     }
 
+    // Bar icon
+    ColumnLayout {
+      Layout.fillWidth: true
+      spacing: Style.spacing.md
+      Label { text: "BAR ICON" }
+      Row {
+        spacing: Style.spacing.md
+        Chip { label: "Add to the bar"; selected: view.barIcon; onClicked: view.barIcon = true }
+        Chip { label: "No"; selected: !view.barIcon; onClicked: view.barIcon = false }
+      }
+      Hint { text: "An icon on the Omarchy bar that opens the manager and lights up when an update is waiting. You can also drag it around the bar." }
+    }
+
     // Update checks
     ColumnLayout {
       Layout.fillWidth: true
@@ -185,7 +201,7 @@ Item {
       Button {
         text: view.svc.setupBusy ? "Applying..." : "Apply"
         selected: true
-        onClicked: view.svc.applySetup(view.launcher, view.handler, view.cli && !view.cliBlocked, view.hours, view.rsize, view.rpos)
+        onClicked: view.svc.applySetup(view.launcher, view.handler, view.cli && !view.cliBlocked, view.hours, view.rsize, view.rpos, view.barIcon)
       }
     }
   }

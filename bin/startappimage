@@ -33,7 +33,7 @@ Usage: startappimage <command> [args]
   set <name> [--name N] [--dir D] [--args A] [--source S] [--hidden true|false]
                                             Change an app's settings
   setup [--launcher B] [--handler B] [--cli B] [--check-hours N]
-        [--remember-size B] [--remember-position B]
+        [--remember-size B] [--remember-position B] [--bar-icon B]
                                             Desktop integration and how often updates are checked (0 = never)
   window [--size WxH] [--offset X,Y] [--reset]
                                             The manager's remembered size and place (no option prints them)
@@ -483,10 +483,14 @@ pending_updates() {
 }
 
 cmd_check() {
+  # The bar icon lights up from this count.
+  local found; found=$(pending_updates)
+  mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/startappimage"
+  printf '%s\n' "$(grep -c . <<<"$found" || true)" >"${XDG_CACHE_HOME:-$HOME/.cache}/startappimage/updates"
   if [[ ${1:-} == --json ]]; then
-    pending_updates | jq -Rn '[inputs|split("\t")|{id:.[0],current:.[1],latest:.[2]}]'
+    printf '%s' "$found" | jq -Rn '[inputs|split("\t")|{id:.[0],current:.[1],latest:.[2]}]'
   else
-    pending_updates | awk -F'\t' '{printf "%s: %s -> %s\n",$1,$2,$3}'
+    printf '%s' "$found" | awk -F'\t' '{printf "%s: %s -> %s\n",$1,$2,$3}'
   fi
 }
 
@@ -656,21 +660,25 @@ cmd_integration() {
   { [[ $(cfg_get SETUP_DONE) == 1 ]] || { [[ $launcher == true && $ours == true ]]; }; } && done=true
   jq -n --argjson launcher "$launcher" --argjson ours "$ours" --argjson done "$done" \
     --arg handler "$h" --arg handlerName "$hname" --arg cli "$(cli_state)" --arg cliPath "$(short_home "$CLI_LINK")" --argjson hours "$(cfg_get CHECK_HOURS | grep -E '^[0-9]+$' || echo 6)" \
+    --argjson baricon "$(bar_icon_state)" \
     --argjson rsize "$([[ $(cfg_get REMEMBER_SIZE) == false ]] && echo false || echo true)" \
     --argjson rpos "$([[ $(cfg_get REMEMBER_POSITION) == false ]] && echo false || echo true)" \
-    '{launcher:$launcher, handler:{ours:$ours, current:$handler, name:$handlerName}, cli:{state:$cli, path:$cliPath}, checkHours:$hours, rememberSize:$rsize, rememberPosition:$rpos, done:$done}'
+    '{launcher:$launcher, handler:{ours:$ours, current:$handler, name:$handlerName}, cli:{state:$cli, path:$cliPath}, checkHours:$hours, barIcon:$baricon, rememberSize:$rsize, rememberPosition:$rpos, done:$done}'
 }
 
 # setup [--launcher true|false] [--handler true|false] [--cli true|false] [--done]
 # Only what is named is touched. --done records that the setup card has been answered.
 cmd_setup() {
-  local launcher="" handler="" cli="" hours="" rsize="" rpos="" mark=0 failed=0
+  local launcher="" handler="" cli="" hours="" rsize="" rpos="" baricon="" mark=0 failed=0
   while (( $# )); do
     case $1 in
       --launcher|--handler|--cli)
         [[ ${2:-} == true || ${2:-} == false ]] || die "setup: $1 takes true or false"
         case $1 in --launcher) launcher=$2 ;; --handler) handler=$2 ;; --cli) cli=$2 ;; esac
         shift 2 ;;
+      --bar-icon)
+        [[ ${2:-} == true || ${2:-} == false ]] || die "setup: --bar-icon takes true or false"
+        baricon=$2; shift 2 ;;
       --remember-size|--remember-position)
         [[ ${2:-} == true || ${2:-} == false ]] || die "setup: $1 takes true or false"
         case $1 in --remember-size) rsize=$2 ;; --remember-position) rpos=$2 ;; esac
@@ -687,11 +695,12 @@ cmd_setup() {
   if [[ -n $cli ]]; then
     if is_true "$cli"; then cli_on || failed=1; else cli_off; fi
   fi
+  [[ -z $baricon ]] || bar_icon_set "$baricon" || failed=1
   [[ -z $hours ]] || cfg_set CHECK_HOURS "$hours"
   # Switching one off also forgets what was saved, so the next open starts from the default.
   if [[ -n $rsize ]]; then cfg_set REMEMBER_SIZE "$rsize"; is_true "$rsize" || { cfg_set WIN_W ""; cfg_set WIN_H ""; }; fi
   if [[ -n $rpos ]]; then cfg_set REMEMBER_POSITION "$rpos"; is_true "$rpos" || { cfg_set WIN_X ""; cfg_set WIN_Y ""; }; fi
-  [[ $mark -eq 0 && -z $launcher$handler$cli$hours$rsize$rpos ]] || cfg_set SETUP_DONE 1
+  [[ $mark -eq 0 && -z $launcher$handler$cli$hours$rsize$rpos$baricon ]] || cfg_set SETUP_DONE 1
   return $failed
 }
 
@@ -699,6 +708,26 @@ cmd_register() { cmd_setup --launcher true --handler true; echo "Registered as d
 cmd_unregister() {
   cmd_setup --launcher false --handler false --cli false
   echo "Unregistered: AppImage files no longer open with StartAppImage"
+}
+
+# --- bar icon (optional) -----------------------------------------------------
+# The plugin is also a bar widget. It sits on the bar only when the layout in shell.json lists it,
+# so adding or removing the icon edits that layout and leaves the plugin itself enabled.
+BAR_ID="${PLUGIN_ID:-io.github.bmaltais.startappimage}"
+bar_shell_json() { local f="$HOME/.config/omarchy/shell.json"; [[ -s $f ]] || f="${OMARCHY_PATH:-/usr/share/omarchy}/config/omarchy/shell.json"; printf '%s' "$f"; }
+bar_icon_state() { # true | false
+  local f; f=$(bar_shell_json)
+  jq -e --arg id "$BAR_ID" '[.bar.layout[]?[]? | if type == "object" then .id else . end] | index($id) != null' "$f" >/dev/null 2>&1 && echo true || echo false
+}
+bar_icon_set() {
+  command -v omarchy-shell-config >/dev/null || { echo "startappimage: the Omarchy bar is not available here" >&2; return 1; }
+  if is_true "$1"; then
+    [[ $(bar_icon_state) == true ]] && return 0
+    ( source omarchy-shell-config; commit "$NORMALIZE | .bar.layout.right += [{id: \$id}]" --arg id "$BAR_ID" )
+  else
+    [[ $(bar_icon_state) == false ]] && return 0
+    ( source omarchy-shell-config; commit "$NORMALIZE | .bar.layout |= with_entries(.value |= (if type == \"array\" then map(select((if type == \"object\" then .id else . end) != \$id)) else . end))" --arg id "$BAR_ID" )
+  fi
 }
 
 # window [--size WxH] [--offset X,Y] [--reset]

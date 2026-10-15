@@ -149,11 +149,12 @@ Item {
     root.close()
   }
 
-  function applySetup(launcher, handler, cli, hours, rsize, rpos) {
+  function applySetup(launcher, handler, cli, hours, rsize, rpos, barIcon) {
     if (setupProc.running) return
     root.setupBusy = true
     setupProc.command = [root.cli, "setup", "--launcher", String(launcher), "--handler", String(handler), "--cli", String(cli), "--check-hours", String(hours),
-      "--remember-size", String(rsize), "--remember-position", String(rpos)]
+      "--remember-size", String(rsize), "--remember-position", String(rpos),
+      "--bar-icon", String(barIcon)]
     setupProc.running = true
   }
 

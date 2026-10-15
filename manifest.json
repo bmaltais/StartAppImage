@@ -6,10 +6,25 @@
   "author": "Bernard Maltais",
   "license": "MIT",
   "description": "Install, update and remove AppImages on Omarchy: a double-click install card, a searchable manager from the app launcher, and background update checks.",
-  "kinds": ["service"],
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
   "keepLoaded": true,
   "entryPoints": {
-    "service": "Service.qml"
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
   },
-  "homepage": "https://github.com/bmaltais/StartAppImage"
+  "homepage": "https://github.com/bmaltais/StartAppImage",
+  "barWidget": {
+    "displayName": "StartAppImage",
+    "description": "Open the AppImage manager from the bar; the icon lights up when an update is waiting.",
+    "category": "System",
+    "aliases": [
+      "appimage",
+      "apps"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
 }
