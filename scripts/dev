@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # dev: test the plugin in a nested Omarchy desktop that your mouse and keyboard cannot reach.
 #
-#   scripts/dev up                      start the session: a second Hyprland and Omarchy shell, this checkout as the plugin
+#   scripts/dev up                      start the session: a second Hyprland and Omarchy shell, this checkout as the plugin, and the
+#                                       view window on your screen (DEV_WATCH=0 for none; DEV_SIZE=WxH for another screen size)
 #   scripts/dev reload                  restart that shell so it loads the checkout's current files (uncommitted changes too)
 #   scripts/dev open | setup | settings APP_ID | close      open or close a window of the plugin there
 #   scripts/dev click PX PY             click at pixel PX,PY of a screenshot of the session
@@ -26,7 +27,7 @@
 # `scripts/reload` is for the times you want to see something on your real shell.
 #
 # The session closes by itself after DEV_TTL seconds (default 1800), and a window closed by hand is cleaned up by the next `up`.
-# Pixels are those of the session's screen, 1280x800, 0,0 at the top-left: take a `dev shot`, read the pixel off it, click.
+# Pixels are those of the session's screen, 1280x800 unless DEV_SIZE=WxH says otherwise (a bigger one for sharper screenshots), 0,0 at the top-left: take a `dev shot`, read the pixel off it, click.
 # Every command prints one line, and exits non-zero when it did not do what it says.
 set -euo pipefail
 
@@ -41,8 +42,9 @@ FAR_X=20000
 
 # What session.sh needs from its caller (the recorder sets the same names).
 TMP=$DEV
-W=1280
-H=800
+DEV_SIZE=${DEV_SIZE:-1280x800}              # the session's screen, WxH (the recorder's TOUR_SIZE)
+W=${DEV_SIZE%x*}
+H=${DEV_SIZE#*x}
 TOUR_PLUGIN_ID=io.github.bmaltais.startappimage
 TOUR_SANDBOX_COPY=(.local/share/startappimage .local/share/applications)
 TOUR_SANDBOX_LINK=(.local/share/icons)
@@ -97,12 +99,14 @@ cmd_up() {
   setsid -f env DEV_WATCHER=1 bash -c 'for ((i = 0; i < $3 * 2; i++)); do [[ -s $1 ]] && break; sleep 0.5; done; exec "$2" down >/dev/null 2>&1' _ "$DEV/close" "$SELF" "$TTL"
   { printf 'NSIG=%q\nNWD=%q\nNMON=%q\nNW=%q\nNH=%q\nNEST_ADDR=%q\n' "$NSIG" "$NWD" "$NMON" "$NW" "$NH" "$NEST_ADDR"; } >"$STATE"
   echo "dev up: session $NWD ${NW}x${NH} out of reach of your mouse and keyboard (look with dev shot), closes in ${TTL}s; plugin errors so far: $(plugin_errors | wc -l)"
+  [[ ${DEV_WATCH:-1} == 0 ]] || cmd_watch
 }
 
 cmd_watch() {
   load
   nested_view_open "$STATE" || exit 1
   echo "dev watch: view window open on your screen (view only; dev unwatch closes it)"
+  overlay_up || echo "dev watch: note, no plugin window is open in the session yet, so the view shows its bare desktop (dev open)" >&2
 }
 
 cmd_unwatch() {
