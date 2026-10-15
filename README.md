@@ -75,11 +75,11 @@ Open **StartAppImage** from the app launcher, or bind a key to it (see [Commands
 
 ### Per-app settings
 
-<img src="screenshots/settings.png" alt="The settings card for PdfCraft: name, location, launch options, update source and launcher visibility" width="520">
+<img src="screenshots/settings.png" alt="PdfCraft's settings window over the manager: pages General, Updates and Location, with name, launcher visibility and launch options" width="620">
 
-The cog on a row opens that app's settings. Only what you change is applied.
+The cog on a row opens that app's settings in the same window as the main settings, over the manager, with pages for **General** (name, show in the app launcher, launch options), **Updates** (the source) and **Location** (the folder). Like the main settings, every change applies the moment you make it; text boxes save on Enter or when you click away.
 
-**Source** sits right under the name. Paste any GitHub link (a repo, a `/releases` page, `github:owner/repo` or plain `owner/repo`) and it checks the link as you type: it shows the latest version and the AppImage it would pick for your CPU, or says what is wrong. `startappimage resolve <link>` prints the same as JSON.
+The **Source** setting, on the Updates page, takes any GitHub link: paste a repo, a `/releases` page, `github:owner/repo` or plain `owner/repo`, and it checks the link as you type: it shows the latest version and the AppImage it would pick for your CPU, or says what is wrong. `startappimage resolve <link>` prints the same as JSON.
 
 ### Colours
 

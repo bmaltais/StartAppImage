@@ -8,8 +8,10 @@
 | `Service.qml` | State, every call to the CLI, the IPC entry points and the window |
 | `ManagerView.qml`, `AppRow.qml` | The manager and the look of one app |
 | `InstallView.qml` | The install card shown when an `.AppImage` is opened |
-| `SettingsView.qml` | A single app's settings |
-| `SetupView.qml` | The settings window: pages on the left, settings on the right, applied instantly |
+| `SettingsWindow.qml` | The settings window component: header, page list, rows, footer. Both settings windows are built on it |
+| `SetupView.qml` | The main settings: launcher entry, file handler, command line, bar icon, update checks, window memory |
+| `SettingsView.qml` | One app's settings: name, launch options, source, folder |
+| `SettingsPill.qml` | A footer button of the settings windows |
 | `BarWidget.qml` | The optional Omarchy bar icon |
 | `ScrollTrack.qml` | The scroll bar |
 | `Chip.qml`, `Field.qml` | A selectable choice and a text field |

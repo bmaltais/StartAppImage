@@ -24,10 +24,11 @@ Every window is a card on a full-screen layer-shell overlay with a dimmed scrim.
 |---|---|---|---|---|---|
 | Manager | 640 (or the user's) | content, up to 580 and the screen minus 80 | yes | yes | Esc, ✕, click outside |
 | Settings window | 760 (or the user's) | 520 (or the user's), at most the screen minus 80 | yes | yes | Esc, ✕, click outside or on the dimmed manager |
-| Install card, per-app settings | 520 | its content | no | no | Esc, ✕, Cancel |
+| App settings window | the settings window's | the settings window's | yes (same place as the settings window) | yes (same size) | Esc, ✕, click outside or on the dimmed manager |
+| Install card | 520 | its content | no | no | Esc, ✕, Cancel |
 
 - **Dismissing.** Esc closes only the topmost window. In a search box, Esc clears the text first. A click on the scrim closes the topmost window.
-- **Stacking.** The settings window floats over the manager, which stays visible behind it under a 35% dark veil. Closing the settings window returns focus to the manager's search box. The install card and the per-app settings card still replace the manager; if that proves confusing they should float over it too.
+- **Stacking.** The settings window and an app's settings window float over the manager, which stays visible behind them under a 35% dark veil. Only one of them is open at a time. Closing one returns focus to the manager's search box. The install card still replaces the manager.
 - **Opening.** The manager opens where the user last left it (see [Remembered state](#remembered-state)).
 - **Close button.** A ✕ in the top-right corner of every card, 8 from the edges.
 - **Drop target.** An `.AppImage` dropped on any card opens the install card.
@@ -43,7 +44,9 @@ Every window is a card on a full-screen layer-shell overlay with a dimmed scrim.
 
 Size and position of each window are saved in `~/.config/startappimage/config` (`WIN_*` for the manager, `SETUP_*` for the settings window) and restored on the next open, even after a shell restart. Two switches control it, under **Window**: *Remember size* and *Remember position*. Switching one off forgets the saved value and opens centred, at the default size. They are read with `startappimage window` and written when a drag or resize ends.
 
-## Settings window
+## Settings windows
+
+There are two, the main one and one per app, and they are the same component: `SettingsWindow.qml` draws the header, page list, rows and footer; `SetupView.qml` (the main settings) and `SettingsView.qml` (one app's) only say what the pages and settings are. A new settings window is a new thin file around `SettingsWindow`, never a new layout. They share one size and position, so opening either puts the window in the same place.
 
 Modelled on StartBar's settings window.
 
@@ -83,6 +86,25 @@ Modelled on StartBar's settings window.
 
 A new setting goes on the page it belongs to, or a new page if none fits. Add it to the `pages` list in `SetupView.qml` (label, hint, control, key) and to `flags`, add the `setup` option, add it to `integration`, and add a row to this table.
 
+### App settings
+
+The window title is the app's icon and name. Pages and settings:
+
+| Page | Setting | Control | Applies with |
+|---|---|---|---|
+| General | Name | text, under its label | `set --name`, on Enter or when the box loses focus |
+| General | Show in the app launcher | switch | `set --hidden` |
+| General | Launch options | text | `set --args` |
+| Updates | Source | text with a live preview | `set --source` |
+| Location | Folder | choice of the known folders, wrapping | `set --dir` (moves the file) |
+| Location | Another folder | text, checked as you type | `set --dir`, on Enter |
+
+- **Source** takes any GitHub link form. After a short pause it shows `✓ owner/repo · latest vX`, the AppImage it would pick for this CPU and how often it is checked, or says why not ("Checking…", no AppImage for this CPU, not found). A source that fails the check is not saved; one saved while GitHub is unreachable says so. Pressing Enter before the check finishes waits for it. Empty means "not updated automatically".
+- **Another folder** says "That looks like a link, not a folder" when a link is pasted, and rejects folders outside the home directory, before anything is saved.
+- **Errors** from `set` appear as a red line under the setting they are about. A failed change does not close the window.
+- **Esc** drops what is typed in a text box and then closes the window: leaving never saves.
+- An app installed outside StartAppImage says so under Name; its changes edit that app's own launcher entry.
+
 ### Applying settings
 
 - **Instantly.** Each click runs `startappimage setup` for that one setting. Clicks queue and run one at a time, in order.
@@ -99,9 +121,9 @@ All are inline components or small files in this repo and use only theme tokens.
 | Control | Look | Used for |
 |---|---|---|
 | **Switch** | 42 × 24 pill; accent when on, 25% foreground when off; round knob in the menu background, 3 inset; the knob slides 100 ms, but not while the page is first shown | on/off settings |
-| **Choice** | Row of segments 28 high, 2 apart; selected is accent-filled with menu-background text, others 8% foreground; caption size | one of a few options |
+| **Choice** | Row of segments 28 high, 2 apart; selected is accent-filled with menu-background text, others 8% foreground; caption size. With many or long options (`stacked`) the segments wrap across the full width under the label, 6 apart | one of a few or several options |
 | **Chip** | Bordered rounded box; selected has a 18% accent fill and an accent border | picking a folder, Shown/Hidden in the per-app card |
-| **Field** | Single-line text box, 34 high, 6% foreground fill, border brightens on focus | text input |
+| **Field** | Single-line text box, 34 high, 6% foreground fill, border brightens on focus. In a settings window it sits under its label at full width and commits on Enter or when it loses focus; Esc drops the edit | text input |
 | **Pill** | 32 high, 8% foreground fill, hover fill, caption size; `primary` is accent-filled and bold; `danger` is 50% red | footer actions |
 | **Button** | The shell's `Button`; bordered for secondary, selected for primary | dialogs and rows |
 | **Scroll bar** (`ScrollTrack`) | 6 wide, soft track at 8%, rounded thumb at 28% that brightens on hover and press; drag the thumb or click the track; shown only when the list overflows | long lists and pages |
@@ -126,10 +148,6 @@ Rules of thumb: one accent-filled thing per screen; selected means accent; hover
 - **Footer.** **Install AppImage…** on the left, "Esc to close" on the right, and the resize grip in the corner. Choosing Install opens a row with one field that takes a path, a download URL, `github:owner/repo` or a github.com link.
 - **Keyboard.** Type to search; Up and Down move; Enter opens; Ctrl+U updates; Delete uninstalls (after a confirmation); Esc clears the search, then closes.
 
-## The per-app settings card
-
-Name, **Source**, Location, Launch options, In the app launcher, in that order. **Source** is one field that takes any GitHub link form and previews it live: it shows `owner/repo · latest vX` and the AppImage it would pick for this CPU, or says why not. Save is dimmed while the source is invalid or still being checked. Errors sit under the field they belong to. A link pasted into the folder field is recognised and offered as the source instead.
-
 ## The bar icon
 
 Optional, off by default, switched in the settings window. It is the download-arrow glyph, placed at the end of the right section of the bar. Left click opens or closes the manager (the same command as the launcher entry); right click checks for updates. It turns accent-coloured while an update is waiting, read from `~/.cache/startappimage/updates`, which every update check writes.
@@ -152,7 +170,7 @@ A change is not done until it has been seen working.
 
 ## Shared UI code
 
-The controls above, the settings window and the drag-and-resize behaviour are meant to be shared by every Start app, so each does not keep its own copy. That is not done yet; the proposal is a shared `StartUI` repository copied into each app (git subtree). Until it exists, this repo is the reference implementation and StartBar's settings window is the reference design.
+The controls above, `SettingsWindow` and the drag-and-resize behaviour are meant to be shared by every Start app, so each does not keep its own copy. That is not done yet; the proposal is a shared `StartUI` repository copied into each app (git subtree). Until it exists, this repo is the reference implementation and StartBar's settings window is the reference design.
 
 ## Decision log
 
@@ -160,6 +178,8 @@ Newest first. One line each: what was decided, and why.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-15 | One app's settings use the same `SettingsWindow` as the main settings: pages on the left, applied instantly, floating over the manager, sharing its size and place | Two different looks for "settings" felt inconsistent; one component keeps them identical and is what will move into the shared UI module |
+| 2026-10-15 | Settings rows keep their place when the data behind them changes (the models are counts, not arrays) | A live preview rebuilt the list on each keystroke and threw away the text box being typed into |
 | 2026-10-15 | Settings window footer: hairline, one hint line on the left, a quiet pill on the right | Reset looked like the main action and "Esc to close" read as a button |
 | 2026-10-15 | Settings window and manager are draggable and resizable; sizes and positions remembered, each behind a switch | Matches StartBar; people place windows where they want them |
 | 2026-10-15 | The settings window floats over the manager, which stays visible | Opening settings used to remove the manager and not bring it back |
