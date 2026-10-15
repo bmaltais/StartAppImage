@@ -151,7 +151,7 @@ Item {
         Text {
           visible: search.text === ""
           anchors.verticalCenter: parent.verticalCenter
-          text: "Search installed apps"
+          text: "Search installed AppImages"
           color: Color.muted
           font: search.font
         }
@@ -274,7 +274,7 @@ Item {
       }
       Button {
         id: addButton
-        text: "Add"
+        text: "Install"
         selected: true
         onClicked: {
           var s = source.text.trim()
@@ -293,7 +293,7 @@ Item {
       spacing: Style.spacing.xxl
 
       Button {
-        text: "+  Add AppImage..."
+        text: "+  Install AppImage..."
         bordered: true
         onClicked: { view.adding = !view.adding; if (view.adding) source.forceActiveFocus(); else search.forceActiveFocus() }
       }
