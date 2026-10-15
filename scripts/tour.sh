@@ -13,7 +13,8 @@
 # typing goes to it. So you know, a small banner window stays in the corner of your real screen saying so,
 # with the step it is on (a notification would show on the virtual monitor, and in the GIF), and a
 # notification says when it is done. Whatever the tour changes is put back when it ends or is interrupted.
-# Needs: hyprctl, jq, grim, ffmpeg (with drawtext), ImageMagick, imv, ydotool and a writable /dev/uinput.
+# Needs: hyprctl (Hyprland), jq, grim, ffmpeg (with drawtext), ImageMagick, imv, foot, ydotool with its daemon
+# running and a writable /dev/uinput. docs/recording-tours.md is the guide.
 #
 # Writing a tour. A tour file is sourced by this script and defines:
 #
@@ -68,7 +69,7 @@ declare -F tour_play >/dev/null || { echo "tour: the tour file must define tour_
 MON=TOURREC
 W=${TOUR_SIZE%x*}
 H=${TOUR_SIZE#*x}
-for tool in hyprctl jq grim ffmpeg ffprobe magick imv ydotool notify-send; do
+for tool in hyprctl jq grim ffmpeg ffprobe magick imv foot ydotool notify-send; do
   command -v "$tool" >/dev/null || { echo "tour: $tool is needed" >&2; exit 1; }
 done
 if declare -F tour_requires >/dev/null; then tour_requires || exit 1; fi
