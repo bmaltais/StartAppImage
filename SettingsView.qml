@@ -14,7 +14,13 @@ SettingsWindow {
   readonly property bool ready: view.svc.settingsState === "ready"
 
   title: view.cfg.name || ""
-  titleIcon: view.svc.settingsApp.icon || ""
+  subtitle: "SETTINGS" + (view.cfg.version && view.cfg.version !== "local" ? "  \u00b7  " + view.cfg.version : "")
+  // The icon comes from the list of apps, which knows it even when the window was opened by command.
+  titleIcon: {
+    var id = view.svc.settingsApp.id
+    var found = view.svc.apps.filter(function (a) { return a.id === id })[0]
+    return (found && found.icon) || view.svc.settingsApp.icon || ""
+  }
   footerText: "Changes apply instantly"
 
   // key -> value, what the controls show: read from the app's settings, and nudged at once when

@@ -18,6 +18,7 @@ SettingsWindow {
   readonly property bool cliBlocked: !!(view.integ.cli && view.integ.cli.state === "other")
 
   title: "StartAppImage"
+  subtitle: "SETTINGS"
   values: view.vals
   footerText: view.integ.done ? "Changes apply instantly" : "Choose what to switch on. Changes apply instantly."
 

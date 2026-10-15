@@ -500,7 +500,8 @@ cmd_update() {
     echo "Updating $id: $cur -> $tag"
     tmp=$(mktemp); curl -fL --progress-bar -o "$tmp" "$url"
     chmod +x "$tmp"; mv "$tmp" "$(app_exec "$id")"
-    db_write "$id" "$(db_get "$id" NAME)" "$(db_get "$id" SOURCE)" "$tag" "EXEC=$(app_exec "$id")"
+    # Only the version changes: the rest of the manifest (EXTERNAL, ICON, DESKTOP, ...) stays.
+    db_set "$id" VERSION "$tag"
   done < <(pending_updates "${1:-}")
   echo "Done."
 }

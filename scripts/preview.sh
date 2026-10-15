@@ -33,11 +33,11 @@ place() {
 }
 
 card manager 78
-card settings-window 82 760x520+0+68
-card settings 62
+card settings-window 70 760x520+0+68
+card settings 70 760x520+0+68
 place manager 76 310
-place settings-window 646 330
-place settings 1272 470
+place settings-window 630 300
+place settings 1040 500
 
 magick -size 1600x900 xc:'#13151f' \
   \( -size 1500x1500 radial-gradient:'#5d3180-#5d318000' \) -geometry +700+-520 -compose over -composite \

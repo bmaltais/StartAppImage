@@ -24,10 +24,11 @@ Every window is a card on a full-screen layer-shell overlay with a dimmed scrim.
 |---|---|---|---|---|---|
 | Manager | 640 (or the user's) | content, up to 580 and the screen minus 80 | yes | yes | Esc, ✕, click outside |
 | Settings window | 760 (or the user's) | 520 (or the user's), at most the screen minus 80 | yes | yes | Esc, ✕, click outside or on the dimmed manager |
-| Install card, per-app settings | 520 | its content | no | no | Esc, ✕, Cancel |
+| App settings window | the settings window's | the settings window's | yes (same place as the settings window) | yes (same size) | Esc, ✕, click outside or on the dimmed manager |
+| Install card | 520 | its content | no | no | Esc, ✕, Cancel |
 
 - **Dismissing.** Esc closes only the topmost window. In a search box, Esc clears the text first. A click on the scrim closes the topmost window.
-- **Stacking.** The settings window floats over the manager, which stays visible behind it under a 35% dark veil. Closing the settings window returns focus to the manager's search box. The install card and the per-app settings card still replace the manager; if that proves confusing they should float over it too.
+- **Stacking.** The settings window and an app's settings window float over the manager, which stays visible behind them under a 35% dark veil. Only one of them is open at a time. Closing one returns focus to the manager's search box. The install card still replaces the manager.
 - **Opening.** The manager opens where the user last left it (see [Remembered state](#remembered-state)).
 - **Close button.** A ✕ in the top-right corner of every card, 8 from the edges.
 - **Drop target.** An `.AppImage` dropped on any card opens the install card.
@@ -43,7 +44,9 @@ Every window is a card on a full-screen layer-shell overlay with a dimmed scrim.
 
 Size and position of each window are saved in `~/.config/startappimage/config` (`WIN_*` for the manager, `SETUP_*` for the settings window) and restored on the next open, even after a shell restart. Two switches control it, under **Window**: *Remember size* and *Remember position*. Switching one off forgets the saved value and opens centred, at the default size. They are read with `startappimage window` and written when a drag or resize ends.
 
-## Settings window
+## Settings windows
+
+There are two, the main one and one per app, and they are the same component: `SettingsWindow.qml` draws the header, page list, rows and footer; `SetupView.qml` (the main settings) and `SettingsView.qml` (one app's) only say what the pages and settings are. A new settings window is a new thin file around `SettingsWindow`, never a new layout. They share one size and position, so opening either puts the window in the same place.
 
 Modelled on StartBar's settings window.
 
@@ -51,6 +54,7 @@ Modelled on StartBar's settings window.
 ┌──────────────────────────────────────────────────────────┐
 │                  ( 🔍 Find a setting )                  ✕ │  header, 60
 │ StartAppImage │ General                                   │
+│ SETTINGS      │                                           │
 │ ▌General      │ App launcher entry              [●━]      │
 │  Bar          │ hint…                                     │  rows
 │  Updates      │ ───────────────────────────────────────── │
@@ -62,7 +66,7 @@ Modelled on StartBar's settings window.
 ```
 
 - **Header (60).** A centred search pill, "Find a setting", with the magnifier glyph. While there is text, the right side lists matching settings from every page under "Search results", each group headed by its page name. No match says "No setting matches “…”."
-- **Page list (190 wide, left).** The window name in bold, then one 38 high row per page. The current page has a 22% accent fill and a 3 wide accent mark on the left, and bold text. Hover is the shell's hover fill. A click clears any search.
+- **Page list (190 wide, left).** The window name in bold with a small-caps line under it that says what the window is for: "SETTINGS" (and for an app, "SETTINGS · 0.8.0" with its version), the same title-over-small-caps pattern as the manager's "7 INSTALLED". Then one 38 high row per page. The title block and the page heading beside it are 48 high. The current page has a 22% accent fill and a 3 wide accent mark on the left, and bold text. Hover is the shell's hover fill. A click clears any search.
 - **Heading.** The page name, body size + 8, bold, on the row of the window name.
 - **Body.** Scrolls when the page is taller than the window, with the [scroll bar](#controls) in a gutter that is always reserved, so the width never changes.
 - **Setting row.** The label (body size) with its hint under it (caption size, 55% opacity), the control on the right, a hairline at 50% under each row. The row is as tall as its label plus hint, with 6 above and below.
@@ -83,6 +87,25 @@ Modelled on StartBar's settings window.
 
 A new setting goes on the page it belongs to, or a new page if none fits. Add it to the `pages` list in `SetupView.qml` (label, hint, control, key) and to `flags`, add the `setup` option, add it to `integration`, and add a row to this table.
 
+### App settings
+
+The window title is the app's icon and name, with "SETTINGS · version" under it. Pages and settings:
+
+| Page | Setting | Control | Applies with |
+|---|---|---|---|
+| General | Name | text, under its label | `set --name`, on Enter or when the box loses focus |
+| General | Show in the app launcher | switch | `set --hidden` |
+| General | Launch options | text | `set --args` |
+| Updates | Source | text with a live preview | `set --source` |
+| Location | Folder | choice of the known folders, wrapping | `set --dir` (moves the file) |
+| Location | Another folder | text, checked as you type | `set --dir`, on Enter |
+
+- **Source** takes any GitHub link form. After a short pause it shows `✓ owner/repo · latest vX`, the AppImage it would pick for this CPU and how often it is checked, or says why not ("Checking…", no AppImage for this CPU, not found). A source that fails the check is not saved; one saved while GitHub is unreachable says so. Pressing Enter before the check finishes waits for it. Empty means "not updated automatically".
+- **Another folder** says "That looks like a link, not a folder" when a link is pasted, and rejects folders outside the home directory, before anything is saved.
+- **Errors** from `set` appear as a red line under the setting they are about. A failed change does not close the window.
+- **Esc** drops what is typed in a text box and then closes the window: leaving never saves.
+- An app installed outside StartAppImage says so under Name; its changes edit that app's own launcher entry.
+
 ### Applying settings
 
 - **Instantly.** Each click runs `startappimage setup` for that one setting. Clicks queue and run one at a time, in order.
@@ -99,9 +122,9 @@ All are inline components or small files in this repo and use only theme tokens.
 | Control | Look | Used for |
 |---|---|---|
 | **Switch** | 42 × 24 pill; accent when on, 25% foreground when off; round knob in the menu background, 3 inset; the knob slides 100 ms, but not while the page is first shown | on/off settings |
-| **Choice** | Row of segments 28 high, 2 apart; selected is accent-filled with menu-background text, others 8% foreground; caption size | one of a few options |
+| **Choice** | Row of segments 28 high, 2 apart; selected is accent-filled with menu-background text, others 8% foreground; caption size. With many or long options (`stacked`) the segments wrap across the full width under the label, 6 apart | one of a few or several options |
 | **Chip** | Bordered rounded box; selected has a 18% accent fill and an accent border | picking a folder, Shown/Hidden in the per-app card |
-| **Field** | Single-line text box, 34 high, 6% foreground fill, border brightens on focus | text input |
+| **Field** | Single-line text box, 34 high, 6% foreground fill, border brightens on focus. In a settings window it sits under its label at full width and commits on Enter or when it loses focus; Esc drops the edit | text input |
 | **Pill** | 32 high, 8% foreground fill, hover fill, caption size; `primary` is accent-filled and bold; `danger` is 50% red | footer actions |
 | **Button** | The shell's `Button`; bordered for secondary, selected for primary | dialogs and rows |
 | **Scroll bar** (`ScrollTrack`) | 6 wide, soft track at 8%, rounded thumb at 28% that brightens on hover and press; drag the thumb or click the track; shown only when the list overflows | long lists and pages |
@@ -126,10 +149,6 @@ Rules of thumb: one accent-filled thing per screen; selected means accent; hover
 - **Footer.** **Install AppImage…** on the left, "Esc to close" on the right, and the resize grip in the corner. Choosing Install opens a row with one field that takes a path, a download URL, `github:owner/repo` or a github.com link.
 - **Keyboard.** Type to search; Up and Down move; Enter opens; Ctrl+U updates; Delete uninstalls (after a confirmation); Esc clears the search, then closes.
 
-## The per-app settings card
-
-Name, **Source**, Location, Launch options, In the app launcher, in that order. **Source** is one field that takes any GitHub link form and previews it live: it shows `owner/repo · latest vX` and the AppImage it would pick for this CPU, or says why not. Save is dimmed while the source is invalid or still being checked. Errors sit under the field they belong to. A link pasted into the folder field is recognised and offered as the source instead.
-
 ## The bar icon
 
 Optional, off by default, switched in the settings window. It is the download-arrow glyph, placed at the end of the right section of the bar. Left click opens or closes the manager (the same command as the launcher entry); right click checks for updates. It turns accent-coloured while an update is waiting, read from `~/.cache/startappimage/updates`, which every update check writes.
@@ -148,11 +167,21 @@ A change is not done until it has been seen working.
 3. Open the window (`omarchy-shell io.github.bmaltais.startappimage open` or `setup`; both toggle or show) and take a screenshot with `grim`.
 4. Click the real controls with `ydotool` and screenshot again. On a monitor that does not start at x = 0, `ydotool mousemove --absolute` lands at twice the coordinate you give plus the monitor's origin, so check with `hyprctl cursorpos`. Screenshot before each click: a click outside a card closes it.
 5. Read the shell log for QML errors: `journalctl --user --since -1min -o cat`.
-6. Retake the README screenshots with `scripts/screenshots.sh` when the look changes, then rebuild `preview.png` (the 1600 by 900 title image) with `scripts/preview.sh`. Both put a plain backdrop behind the cards. Set the manager to about 690 by 696 first (`startappimage window --size 690x696 --offset 0,0`, then restart the shell) so the hero shows every app without a cut-off row, and restore your own window values afterwards.
+6. Retake the README screenshots with `scripts/screenshots.sh` when the look changes, retake the tour with `scripts/hero.sh --install` when a step of it changes (see [Recording the tour](#recording-the-tour)), then rebuild `preview.png` (the 1600 by 900 title image) with `scripts/preview.sh`. Both put a plain backdrop behind the cards. Set the manager to about 690 by 696 first (`startappimage window --size 690x696 --offset 0,0`, then restart the shell) so the hero shows every app without a cut-off row, and restore your own window values afterwards.
+
+## Recording the tour
+
+The GIF at the top of the README is a short story of using the app, recorded by `scripts/tour.sh`, a recorder that is **not specific to StartAppImage** (the full guide, with a worked example and troubleshooting, is [recording-tours.md](recording-tours.md)): it films a temporary virtual monitor frame by frame (so your own screen is left alone), puts a plain backdrop on it, clicks through the app with the real pointer and keyboard, adds a caption for each step and writes the GIF. Each app supplies a **tour file** that says what to do; this app's is `scripts/tours/hero.sh`. `scripts/tour.sh TOURFILE [--install]` runs one, and `scripts/hero.sh` is the shortcut for ours.
+
+- **A tour file** is a bash file that sets `TOUR_TITLE` (the app's name), `TOUR_OUT` (the GIF's path), `TOUR_LAYER` (the app window's layer-shell name, so keys and typing are only sent while it is up) and optionally `TOUR_STEPS`, `TOUR_SIZE`, `TOUR_BG` and `TOUR_RESTART_SHELL`; and defines `tour_play` (the steps, using `cap`, `glide`, `click`, `drag`, `typed`, `esc`, `wait_until`) plus, as needed, `tour_requires`, `tour_prepare`, `tour_setup` and `tour_restore`. The header of `scripts/tour.sh` documents the contract; the recorder does the rest, including putting things back if it is interrupted.
+- **Story, not a feature list.** Each step is one thing a person does, with a caption that says it in plain words. Ours: double-click an AppImage and see what it is; the manager with an update waiting; one click to update; point an app at its GitHub releases; settings that apply at once; resize and move the window and find it where it was left. About a minute, 10 frames a second, 1200 px wide, a few MB.
+- **Asks first, then says so while it runs.** A red window with white text opens in the middle of your real screen and asks you to confirm with **Proceed** or **Cancel** (Esc also cancels; nothing is touched if you cancel). While it records, the same window stays up saying not to touch the mouse or keyboard, with the step it is on, and turns green when the tour is done. The pointer is on the virtual monitor and typing goes there, which is why. (Notifications cannot be used for this: they appear on the focused monitor, the virtual one, and would end up in the GIF.)
+- **It changes things and puts them back**: whatever the tour's `tour_prepare` saves and `tour_restore` restores. Ours resets the windows' saved size and place, makes one app look a version behind so it can be updated, changes the check interval and switches the bar icon off and on.
+- **Keep the tour honest.** It uses the real app, so a step that changes (a button moves, a label is renamed) breaks the tour's clicks: retake and look at the GIF before committing it.
 
 ## Shared UI code
 
-The controls above, the settings window and the drag-and-resize behaviour are meant to be shared by every Start app, so each does not keep its own copy. That is not done yet; the proposal is a shared `StartUI` repository copied into each app (git subtree). Until it exists, this repo is the reference implementation and StartBar's settings window is the reference design.
+The controls above, `SettingsWindow`, the drag-and-resize behaviour and the tour recorder (`scripts/tour.sh`) are meant to be shared by every Start app, so each does not keep its own copy. That is not done yet; the proposal is a shared `StartUI` repository copied into each app (git subtree). Until it exists, this repo is the reference implementation and StartBar's settings window is the reference design.
 
 ## Decision log
 
@@ -160,6 +189,12 @@ Newest first. One line each: what was decided, and why.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-15 | The tour recorder gets a `--nested` mode: the tour runs in a second Hyprland shown as a window, in a sandbox, driven over its own Wayland socket | You can watch it, your mouse and keyboard cannot disturb it, and it never changes your real settings or files. It is opt-in until it has been used on more setups |
+| 2026-10-15 | The tour recorder asks for confirmation in a centred red window (Proceed / Cancel), then shows its progress in it, instead of a flickering terminal banner | A recording takes over the pointer and keyboard; people must agree to it first and be able to see it is on |
+| 2026-10-15 | The README leads with a recorded tour (`screenshots/hero.gif`) made by an app-agnostic recorder that reads a per-app tour file | A still shows a look, not how the app is used; one recorder keeps every Start app's tour alike |
+| 2026-10-15 | Settings windows say "SETTINGS" in small caps under their title | Nothing in the window said what it was for; the title-over-small-caps pattern is the one the manager already uses |
+| 2026-10-15 | One app's settings use the same `SettingsWindow` as the main settings: pages on the left, applied instantly, floating over the manager, sharing its size and place | Two different looks for "settings" felt inconsistent; one component keeps them identical and is what will move into the shared UI module |
+| 2026-10-15 | Settings rows keep their place when the data behind them changes (the models are counts, not arrays) | A live preview rebuilt the list on each keystroke and threw away the text box being typed into |
 | 2026-10-15 | Settings window footer: hairline, one hint line on the left, a quiet pill on the right | Reset looked like the main action and "Esc to close" read as a button |
 | 2026-10-15 | Settings window and manager are draggable and resizable; sizes and positions remembered, each behind a switch | Matches StartBar; people place windows where they want them |
 | 2026-10-15 | The settings window floats over the manager, which stays visible | Opening settings used to remove the manager and not bring it back |

@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="StartAppImage's manager listing installed AppImages, with search, per-app settings and uninstall" src="screenshots/manager.png" width="620" />
+  <img alt="A tour of StartAppImage: the install card for a double-clicked AppImage, the manager with an update waiting and one click to update it, pointing an app at its GitHub releases with a live check of the link, settings that apply as you change them, and resizing and moving the window" src="screenshots/hero.gif" width="900" />
 </p>
 
 <h1 align="center">StartAppImage</h1>
@@ -34,7 +34,7 @@ That is all. A few seconds after the shell loads, the **settings window** opens 
 | **Open `.AppImage` files with** | Makes StartAppImage the program that opens them, so a double-click shows the install card | StartAppImage, replacing any app that opens them today (it is remembered, see below) |
 | **Command line** | Links `~/.local/bin/startappimage` so you can use it in a terminal | On, unless that path is taken |
 
-Every change in the settings window **applies the moment you make it**, as in StartBar; there is no Apply button.
+Every change in the settings window **applies the moment you make it**, as in StartBar; there is no Apply button. Both settings windows, the main one and each app's, carry a small **SETTINGS** label under their title (an app's also shows its version), and a **Find a setting** search at the top.
 
 - **Another app already opens AppImages?** The window names it ("Today these files open with *X*"). StartAppImage takes over and remembers *X*; switch the setting back later, from the window or with `setup --handler false`, and *X* gets the files back. Pick **Keep X** to leave it in charge from the start.
 - **Something else at `~/.local/bin/startappimage`?** It is left alone and the window says so.
@@ -62,6 +62,8 @@ Opening an `.AppImage` from your file manager shows a small card instead of runn
 
 ### The manager
 
+<img src="screenshots/manager.png" alt="StartAppImage's manager listing installed AppImages, with search, per-app settings and uninstall" width="620">
+
 Open **StartAppImage** from the app launcher, or bind a key to it (see [Commands](#commands)).
 
 - **One row per app.** Its icon, name, version and where it came from, with a dot that turns to your accent colour when an update is waiting.
@@ -75,11 +77,11 @@ Open **StartAppImage** from the app launcher, or bind a key to it (see [Commands
 
 ### Per-app settings
 
-<img src="screenshots/settings.png" alt="The settings card for PdfCraft: name, location, launch options, update source and launcher visibility" width="520">
+<img src="screenshots/settings.png" alt="PdfCraft's settings window over the manager: pages General, Updates and Location, with name, launcher visibility and launch options" width="620">
 
-The cog on a row opens that app's settings. Only what you change is applied.
+The cog on a row opens that app's settings in the same window as the main settings, over the manager, with pages for **General** (name, show in the app launcher, launch options), **Updates** (the source) and **Location** (the folder). Like the main settings, every change applies the moment you make it; text boxes save on Enter or when you click away.
 
-**Source** sits right under the name. Paste any GitHub link (a repo, a `/releases` page, `github:owner/repo` or plain `owner/repo`) and it checks the link as you type: it shows the latest version and the AppImage it would pick for your CPU, or says what is wrong. `startappimage resolve <link>` prints the same as JSON.
+The **Source** setting, on the Updates page, takes any GitHub link: paste a repo, a `/releases` page, `github:owner/repo` or plain `owner/repo`, and it checks the link as you type: it shows the latest version and the AppImage it would pick for your CPU, or says what is wrong. `startappimage resolve <link>` prints the same as JSON.
 
 ### Colours
 
