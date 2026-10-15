@@ -425,7 +425,8 @@ Item {
     Row {
       id: footerButtons
       anchors.right: parent.right
-      anchors.rightMargin: Style.spacing.lg
+      // Leaves room for the resize grip in the corner.
+      anchors.rightMargin: Style.space(30)
       anchors.verticalCenter: parent.verticalCenter
       spacing: Style.spacing.lg
       // A first run offers the recommended set in one click, or to leave it for later.
@@ -449,6 +450,13 @@ Item {
           if (view.confirmingReset) { view.confirmingReset = false; resetTimer.stop(); view.applyDefaults() }
           else { view.confirmingReset = true; resetTimer.restart() }
         }
+      }
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        text: "Esc to close"
+        color: Color.muted
+        font.family: Style.font.family
+        font.pixelSize: Style.font.bodySmall
       }
     }
   }

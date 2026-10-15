@@ -384,6 +384,10 @@ Item {
           win.sizeH = w.h > 0 ? w.h : 0
           win.dragX = w.x
           win.dragY = w.y
+          win.sSizeW = w.setup.w > 0 ? w.setup.w : 0
+          win.sSizeH = w.setup.h > 0 ? w.setup.h : 0
+          win.sDragX = w.setup.x
+          win.sDragY = w.setup.y
         } catch (e) {}
       }
     }
@@ -542,10 +546,43 @@ Item {
     // Where the card was last left is remembered across restarts (see `startappimage window`);
     // opening it again puts it back, kept on the screen in case the screen has changed.
     // (The window has no size until it is shown, so the check waits for one.)
-    onHeightChanged: if (visible) win.moveBy(0, 0)
+    onHeightChanged: if (visible) { win.moveBy(0, 0); win.moveSetupBy(0, 0) }
     onVisibleChanged: if (visible) {
-      if (!root.rememberPosition) { win.dragX = 0; win.dragY = 0 }
-      if (!root.rememberSize) { win.sizeW = 0; win.sizeH = 0 }
+      if (!root.rememberPosition) { win.dragX = 0; win.dragY = 0; win.sDragX = 0; win.sDragY = 0 }
+      if (!root.rememberSize) { win.sizeW = 0; win.sizeH = 0; win.sSizeW = 0; win.sSizeH = 0 }
+    }
+
+    // The settings window moves and resizes the same way, with its own offsets and size.
+    property real sDragX: 0
+    property real sDragY: 0
+    property real sSizeW: 0
+    property real sSizeH: 0
+    function saveSetupWindow(withSize) {
+      var args = [root.cli, "window"]
+      if (root.rememberPosition) args.push("--setup-offset", Math.round(win.sDragX) + "," + Math.round(win.sDragY))
+      if (withSize && root.rememberSize && win.sSizeW > 0) args.push("--setup-size", Math.round(win.sSizeW) + "x" + Math.round(win.sSizeH))
+      if (args.length > 2) Quickshell.execDetached(args)
+    }
+    function resetSetupWindow() {
+      win.sSizeW = 0; win.sSizeH = 0; win.sDragX = 0; win.sDragY = 0
+      Quickshell.execDetached([root.cli, "window", "--reset-setup"])
+    }
+    function resizeSetupBy(dx, dy) {
+      var w = Math.max(Style.space(560), Math.min(win.width - Style.space(40), setupFrame.width + dx))
+      var h = Math.max(Style.space(360), Math.min(win.height - Style.space(40), setupFrame.height + dy))
+      win.sDragX += (w - setupFrame.width) / 2
+      win.sDragY += (h - setupFrame.height) / 2
+      win.sSizeW = w
+      win.sSizeH = h
+    }
+    function moveSetupBy(dx, dy) {
+      if (win.width <= 0 || win.height <= 0) return
+      var grab = Style.space(60)
+      var maxX = (win.width + setupFrame.width) / 2 - grab
+      var minY = -(win.height - setupFrame.height) / 2
+      var maxY = (win.height + setupFrame.height) / 2 - grab
+      win.sDragX = Math.max(-maxX, Math.min(maxX, win.sDragX + dx))
+      win.sDragY = Math.max(minY, Math.min(maxY, win.sDragY + dy))
     }
 
     function saveWindow(withSize) {
@@ -739,8 +776,10 @@ Item {
       id: setupFrame
       visible: root.setupOpen && root.integLoaded
       anchors.centerIn: parent
-      width: Style.space(760)
-      height: Math.min(setupView.implicitHeight, (win.screen ? win.screen.height : 900) - Style.space(80))
+      anchors.horizontalCenterOffset: win.sDragX
+      anchors.verticalCenterOffset: win.sDragY
+      width: win.sSizeW > 0 ? win.sSizeW : Style.space(760)
+      height: win.sSizeH > 0 ? win.sSizeH : Math.min(setupView.implicitHeight, (win.screen ? win.screen.height : 900) - Style.space(80))
       radius: root.radius
       color: Color.menu.background
       border.width: Style.normalBorderWidth
@@ -752,10 +791,58 @@ Item {
       // Swallow clicks so they do not reach the dismiss area behind the card.
       MouseArea { anchors.fill: parent }
 
+      // Drag the top strip to move the window; declared before the content so its own
+      // search box and buttons sit above it.
+      MouseArea {
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: Style.space(60)
+        cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+        property real pressX: 0
+        property real pressY: 0
+        onPressed: function (mouse) { pressX = mouse.x; pressY = mouse.y }
+        onPositionChanged: function (mouse) {
+          if (pressed) win.moveSetupBy(mouse.x - pressX, mouse.y - pressY)
+        }
+        onReleased: win.saveSetupWindow(false)
+      }
+
       SetupView {
         id: setupView
         anchors.fill: parent
         svc: root
+      }
+
+      // Resize handle in the bottom-right corner, as on the manager.
+      MouseArea {
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        width: Style.space(22)
+        height: Style.space(22)
+        z: 10
+        cursorShape: Qt.SizeFDiagCursor
+        property real pressX: 0
+        property real pressY: 0
+        onPressed: function (mouse) { pressX = mouse.x; pressY = mouse.y }
+        onPositionChanged: function (mouse) {
+          if (pressed) win.resizeSetupBy(mouse.x - pressX, mouse.y - pressY)
+        }
+        onReleased: win.saveSetupWindow(true)
+        onDoubleClicked: win.resetSetupWindow()
+        Repeater {
+          model: [0, 1]
+          Rectangle {
+            width: Style.space(10) - index * Style.space(5)
+            height: Math.max(1, Style.normalBorderWidth)
+            radius: height / 2
+            color: Util.alpha(Color.foreground, 0.30)
+            rotation: -45
+            x: parent.width - Style.space(14) + index * Style.space(5)
+            y: parent.height - Style.space(9) - index * Style.space(5) + Style.space(1)
+            transformOrigin: Item.Center
+          }
+        }
       }
 
       Button {

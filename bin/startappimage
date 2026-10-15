@@ -35,8 +35,8 @@ Usage: startappimage <command> [args]
   setup [--launcher B] [--handler B] [--cli B] [--check-hours N]
         [--remember-size B] [--remember-position B] [--bar-icon B]
                                             Desktop integration and how often updates are checked (0 = never)
-  window [--size WxH] [--offset X,Y] [--reset]
-                                            The manager's remembered size and place (no option prints them)
+  window [--size WxH] [--offset X,Y] [--reset] [--setup-size WxH] [--setup-offset X,Y] [--reset-setup]
+                                            The manager and settings window's remembered size and place (no option prints them)
   resolve <link|owner/repo>                 JSON: what an update source points at (repo, tag, asset)
   list [--json]                             List installed AppImages
   update [name]                             Update one or all (github-sourced) AppImages
@@ -697,8 +697,8 @@ cmd_setup() {
   fi
   [[ -z $hours ]] || cfg_set CHECK_HOURS "$hours"
   # Switching one off also forgets what was saved, so the next open starts from the default.
-  if [[ -n $rsize ]]; then cfg_set REMEMBER_SIZE "$rsize"; is_true "$rsize" || { cfg_set WIN_W ""; cfg_set WIN_H ""; }; fi
-  if [[ -n $rpos ]]; then cfg_set REMEMBER_POSITION "$rpos"; is_true "$rpos" || { cfg_set WIN_X ""; cfg_set WIN_Y ""; }; fi
+  if [[ -n $rsize ]]; then cfg_set REMEMBER_SIZE "$rsize"; is_true "$rsize" || { cfg_set WIN_W ""; cfg_set WIN_H ""; cfg_set SETUP_W ""; cfg_set SETUP_H ""; }; fi
+  if [[ -n $rpos ]]; then cfg_set REMEMBER_POSITION "$rpos"; is_true "$rpos" || { cfg_set WIN_X ""; cfg_set WIN_Y ""; cfg_set SETUP_X ""; cfg_set SETUP_Y ""; }; fi
   [[ $mark -eq 0 && -z $launcher$handler$cli$hours$rsize$rpos$baricon ]] || cfg_set SETUP_DONE 1
   # Last: changing the bar makes the shell reload its config, which can restart the plugin
   # (and this process) part-way through.
@@ -732,8 +732,8 @@ bar_icon_set() {
   fi
 }
 
-# window [--size WxH] [--offset X,Y] [--reset]
-# The manager window's size and its offset from the screen centre. No option prints them as JSON.
+# window [--size WxH] [--offset X,Y] [--reset] [--setup-size WxH] [--setup-offset X,Y] [--reset-setup]
+# The manager's and the settings window's size and offset from the screen centre. No option prints them as JSON.
 cmd_window() {
   need jq
   while (( $# )); do
@@ -742,13 +742,20 @@ cmd_window() {
         cfg_set WIN_W "${2%x*}"; cfg_set WIN_H "${2#*x}"; shift 2 ;;
       --offset) [[ ${2:-} =~ ^-?[0-9]+,-?[0-9]+$ ]] || die "window: --offset takes X,Y"
         cfg_set WIN_X "${2%,*}"; cfg_set WIN_Y "${2#*,}"; shift 2 ;;
+      --setup-size) [[ ${2:-} =~ ^[0-9]+x[0-9]+$ ]] || die "window: --setup-size takes WIDTHxHEIGHT"
+        cfg_set SETUP_W "${2%x*}"; cfg_set SETUP_H "${2#*x}"; shift 2 ;;
+      --setup-offset) [[ ${2:-} =~ ^-?[0-9]+,-?[0-9]+$ ]] || die "window: --setup-offset takes X,Y"
+        cfg_set SETUP_X "${2%,*}"; cfg_set SETUP_Y "${2#*,}"; shift 2 ;;
       --reset) for k in WIN_W WIN_H WIN_X WIN_Y; do cfg_set "$k" ""; done; shift ;;
+      --reset-setup) for k in SETUP_W SETUP_H SETUP_X SETUP_Y; do cfg_set "$k" ""; done; shift ;;
       *) die "window: unknown option $1" ;;
     esac
   done
   local k v out=()
-  for k in WIN_W WIN_H WIN_X WIN_Y; do v=$(cfg_get "$k"); [[ $v =~ ^-?[0-9]+$ ]] || v=0; out+=("$v"); done
-  jq -n --argjson w "${out[0]}" --argjson h "${out[1]}" --argjson x "${out[2]}" --argjson y "${out[3]}" '{w:$w, h:$h, x:$x, y:$y}'
+  for k in WIN_W WIN_H WIN_X WIN_Y SETUP_W SETUP_H SETUP_X SETUP_Y; do v=$(cfg_get "$k"); [[ $v =~ ^-?[0-9]+$ ]] || v=0; out+=("$v"); done
+  jq -n --argjson w "${out[0]}" --argjson h "${out[1]}" --argjson x "${out[2]}" --argjson y "${out[3]}" \
+    --argjson sw "${out[4]}" --argjson sh "${out[5]}" --argjson sx "${out[6]}" --argjson sy "${out[7]}" \
+    '{w:$w, h:$h, x:$x, y:$y, setup:{w:$sw, h:$sh, x:$sx, y:$sy}}'
 }
 
 case "${1:-help}" in
