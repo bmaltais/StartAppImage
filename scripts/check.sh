@@ -26,6 +26,7 @@ icons() {
 }
 
 step "shell scripts (bash -n, shellcheck)" scripts/lint-sh.sh
+step "CLI behaviour (tests/cli.sh)" tests/cli.sh
 step "QML (qmllint, new warnings only)" scripts/lint-qml.py
 if command -v omarchy >/dev/null; then step "plugin manifest (omarchy plugin validate)" omarchy plugin validate .
 else echo "  skip  plugin manifest (omarchy is not installed here)"; fi
