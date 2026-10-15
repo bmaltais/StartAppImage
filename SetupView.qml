@@ -92,6 +92,7 @@ SettingsWindow {
   Timer { id: resetTimer; interval: 3000; onTriggered: view.confirmingReset = false }
   function applyDefaults() {
     var d = view.integ.defaults  // the CLI's recommended set
+    if (!d) return
     var v = { launcher: d.launcher, handler: d.handler, cli: d.cli && !view.cliBlocked, barIcon: d.barIcon,
       hours: d.checkHours, rsize: d.rememberSize, rpos: d.rememberPosition }
     view.vals = v

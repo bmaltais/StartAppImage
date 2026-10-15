@@ -11,7 +11,7 @@ BarWidget {
   id: root
   moduleName: "io.github.bmaltais.startappimage"
 
-  readonly property string countFile: Quickshell.env("HOME") + "/.cache/startappimage/updates"
+  readonly property string countFile: (Quickshell.env("XDG_CACHE_HOME") || Quickshell.env("HOME") + "/.cache") + "/startappimage/updates"
   property int updates: 0
 
   implicitWidth: button.implicitWidth

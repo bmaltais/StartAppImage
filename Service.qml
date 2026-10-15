@@ -448,9 +448,11 @@ Item {
         try {
           var r = JSON.parse(line)
           if (!r.ok) { root.settingsError = r.error; root.settingsErrorField = r.field }
-        } catch (e) {}
+        } catch (e) { root.settingsError = line }
       }
     }
+    // A failure the CLI could not put in JSON (jq missing) is a plain line here.
+    stderr: SplitParser { onRead: line => { if (root.settingsError === "") root.settingsError = line.replace(/^startappimage: /, "") } }
     onExited: code => {
       if (code !== 0 && root.settingsError === "") root.settingsError = "Could not save the setting."
       // The list and the update check follow what changed; the window stays open.

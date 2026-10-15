@@ -87,6 +87,7 @@ t_add_a_missing_file_fails() {
 t_add_outside_home_fails() {
   fake_appimage "$HOME/Downloads/Demo.AppImage" "Demo App" 1.2
   cli add "$HOME/Downloads/Demo.AppImage" --dir /opt/apps; refused "inside your home directory"
+  cli add "$HOME/Downloads/Demo.AppImage" --dir /opt/apps --json; eq "$(jqv '.field')" dir "field"
 }
 
 t_add_with_a_name_overrides_the_app_name() {

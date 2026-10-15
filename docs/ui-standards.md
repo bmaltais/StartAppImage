@@ -112,7 +112,7 @@ The window title is the app's icon and name, with "SETTINGS · version" under it
 - **Read back.** When the queue is empty the window reads the real state back, so a switch always shows what the system has.
 - **Failure.** A change that fails is announced with a critical notification ("Setting was not applied" and the reason) and its control flips back on the read-back.
 - **Window stays open.** Applying never closes the window.
-- **Reset to defaults.** A soft pill. The first click turns it red and asks "Click again to reset everything" for 3 seconds; the second click applies the defaults: launcher, file handler and command line on, bar icon off, checks every 6 hours, size and position remembered.
+- **Reset to defaults.** A soft pill. The first click turns it red and asks "Click again to reset everything" for 3 seconds; the second click applies the defaults: launcher, file handler and command line on, bar icon off, checks every 6 hours, size and position remembered. These values are the CLI's (`defaults` in `startappimage integration`), not written here or in the QML.
 - **First run.** The window opens once, a few seconds after the plugin first loads, showing what is on now (usually nothing). The footer has **Not now** and an accent-filled **Enable recommended**. After the first change or **Not now** it never opens by itself again.
 
 ## Controls
@@ -190,3 +190,5 @@ Newest first. One line each: what was decided, and why.
 | 2026-10-15 | One smart Source field with live preview in the per-app card, placed under the name | A bare "owner/repo" box was misread; people paste links into the wrong field |
 | 2026-10-15 | "Install AppImage…" and "Search installed AppImages" | Say what the thing is; "app" was ambiguous next to the app launcher |
 | 2026-10-15 | Scroll bar when the list overflows, same style as StartBar's | Long lists were cut off with no hint |
+| 2026-10-15 | A setting error is shown next to the setting the CLI names (`field`), and an app's source label comes from the CLI's `sourceKind` and `repo` | Matching the wording of an error, or the `github:` prefix, broke silently when a message changed |
+| 2026-10-15 | Defaults for Reset and "Enable recommended" come from the CLI's `integration` | The same defaults were written in the CLI, the service and the view |
