@@ -253,7 +253,7 @@ Item {
           Text {
             visible: source.text === ""
             anchors.verticalCenter: parent.verticalCenter
-            text: "github:owner/repo, https://... or /path/App.AppImage"
+            text: "GitHub link, owner/repo, download URL or /path/App.AppImage"
             color: Color.muted
             font: source.font
           }

@@ -169,6 +169,18 @@ Item {
 
   function closeSettings() { root.view = "manager" }
 
+  // ---- update source preview: what a pasted link points at ------------------------
+  property var resolved: ({})                 // result of `resolve` for resolveAsked
+  property string resolveAsked: ""            // the input `resolved` answers
+  property string resolveWanted: ""           // the latest input the UI asked about
+  readonly property bool resolving: resolveWanted !== "" && resolveWanted !== resolveAsked
+
+  function resolveSource(input) {
+    root.resolveWanted = input.trim()
+    if (root.resolveWanted === "") { root.resolved = ({}); root.resolveAsked = ""; return }
+    if (!resolveProc.running) resolveProc.start()
+  }
+
   function saveSettings(args) {
     root.settingsError = ""
     root.settingsState = "saving"
@@ -337,6 +349,21 @@ Item {
         }
       }
     }
+  }
+
+  Process {
+    id: resolveProc
+    property string asked: ""
+    function start() { asked = root.resolveWanted; command = [root.cli, "resolve", asked]; running = true }
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var r = ({})
+        try { r = JSON.parse(text) } catch (e) { r = ({ ok: false, kind: "network", error: "Could not check this source" }) }
+        if (resolveProc.asked === root.resolveWanted) { root.resolved = r; root.resolveAsked = resolveProc.asked }
+      }
+    }
+    // The field changed while this ran: ask again with the newest text.
+    onExited: if (root.resolveWanted !== "" && root.resolveWanted !== resolveProc.asked) resolveProc.start()
   }
 
   Process {

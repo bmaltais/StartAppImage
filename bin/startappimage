@@ -34,6 +34,7 @@ Usage: startappimage <command> [args]
                                             Change an app's settings
   setup [--launcher B] [--handler B] [--cli B] [--check-hours N]
                                             Desktop integration and how often updates are checked (0 = never)
+  resolve <link|owner/repo>                 JSON: what an update source points at (repo, tag, asset)
   list [--json]                             List installed AppImages
   update [name]                             Update one or all (github-sourced) AppImages
   check [--json]                            Report available updates without installing
@@ -124,9 +125,8 @@ gh_repo() { # "github:o/r", a github.com URL (releases page included) or "o/r" -
   printf '%s/%s' "$r1" "${r2%.git}"
 }
 
-gh_latest() { # owner/repo -> "tag<TAB>asset_url", the AppImage built for this CPU
-  local arch; arch=$(uname -m)
-  curl -fsSL "https://api.github.com/repos/$1/releases/latest" | jq -r --arg a "$arch" '
+gh_pick() { # release JSON on stdin -> "tag<TAB>asset_url", the AppImage built for this CPU
+  jq -r --arg a "$(uname -m)" '
     def tokens: {x86_64:"x86_64|amd64|x64", aarch64:"aarch64|arm64", armv7l:"armv7|armhf|arm32", i686:"i[3-6]86|x86_32"};
     def any: "x86_64|amd64|aarch64|arm64|armv7|armhf|i[3-6]86|riscv|ppc64";
     .tag_name as $t
@@ -134,6 +134,34 @@ gh_latest() { # owner/repo -> "tag<TAB>asset_url", the AppImage built for this C
     | ($all | map(select(.name | test((tokens[$a] // $a); "i"))) | first)
       // ($all | map(select(.name | test(any; "i") | not)) | first) as $x
     | "\($t)\t\($x.browser_download_url // "")"'
+}
+
+gh_latest() { # owner/repo -> "tag<TAB>asset_url"
+  curl -fsSL "https://api.github.com/repos/$1/releases/latest" | gh_pick
+}
+
+# resolve <link|owner/repo>: JSON for the UI. {ok, repo, tag, asset, kind, error}
+# kind: invalid | notfound | noasset | network (the last one does not stop a save).
+cmd_resolve() {
+  need jq; need curl
+  local repo body code tag url assets
+  repo=$(gh_repo "${1:-}")
+  res() { jq -n --argjson ok "$1" --arg repo "$repo" --arg tag "${tag:-}" --arg asset "$(basename "${url:-}")" --arg kind "${2:-}" --arg error "${3:-}" \
+    '{ok:$ok, repo:$repo, tag:$tag, asset:$asset, kind:$kind, error:$error}'; }
+  if [[ ! $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then res false invalid "Use a GitHub link or owner/repo"; return 0; fi
+  body=$(curl -sS --max-time 15 -w '\n%{http_code}' "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null) || { res false network "Could not reach GitHub"; return 0; }
+  code=${body##*$'\n'}; body=${body%$'\n'*}
+  case $code in
+    200) ;;
+    404) res false notfound "No GitHub repository or release found at $repo"; return 0 ;;
+    *) res false network "GitHub answered $code, try again later"; return 0 ;;
+  esac
+  IFS=$'\t' read -r tag url < <(gh_pick <<<"$body")
+  if [[ -z $url ]]; then
+    assets=$(jq -r '[.assets[].name | select(test("\\.AppImage$"; "i"))] | join(", ")' <<<"$body")
+    res false noasset "The latest release has no AppImage for $(uname -m)${assets:+ (found: $assets)}"; return 0
+  fi
+  res true
 }
 
 # --- metadata ------------------------------------------------------------------
@@ -666,6 +694,7 @@ case "${1:-help}" in
   ui) omarchy-shell "$PLUGIN_ID" open || die "the StartAppImage plugin is not running (omarchy plugin enable $PLUGIN_ID)" ;;
   info) shift; cmd_info "$@" ;;
   locations) cmd_locations ;;
+  resolve) shift; cmd_resolve "$@" ;;
   config) shift; cmd_config "$@" ;;
   set) shift; cmd_set "$@" ;;
   run) shift; cmd_run "$@" ;;

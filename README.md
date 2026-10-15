@@ -75,6 +75,8 @@ Open **StartAppImage** from the app launcher, or bind a key to it (see [Commands
 
 The cog on a row opens that app's settings. Only what you change is applied.
 
+**Source** sits right under the name. Paste any GitHub link (a repo, a `/releases` page, `github:owner/repo` or plain `owner/repo`) and it checks the link as you type: it shows the latest version and the AppImage it would pick for your CPU, or says what is wrong. `startappimage resolve <link>` prints the same as JSON.
+
 ### Colours
 
 Colours, fonts and corner radius follow the current Omarchy theme live.

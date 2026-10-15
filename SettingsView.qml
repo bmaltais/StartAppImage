@@ -20,10 +20,42 @@ Item {
 
   function repoOf(src) { return src && src.indexOf("github:") === 0 ? src.substring(7) : "" }
 
+  // ---- update source: any link form is accepted and previewed ----------------
+  readonly property string sourceText: sourceField.text.trim()
+  readonly property bool sourceFresh: view.sourceText !== "" && view.svc.resolveAsked === view.sourceText
+  readonly property var res: view.sourceFresh ? view.svc.resolved : ({})
+  // "empty" | "checking" | "ok" | "error" (stops a save) | "warn" (GitHub unreachable, saves anyway)
+  readonly property string sourceState: view.sourceText === "" ? "empty"
+    : !view.sourceFresh ? "checking"
+    : view.res.ok ? "ok"
+    : view.res.kind === "network" ? "warn" : "error"
+  // What is saved: the normalised owner/repo when it resolved, else the text as typed.
+  readonly property string sourceValue: view.sourceState === "ok" ? view.res.repo : view.sourceText
+
+  // ---- folder: checked as you type, and a pasted link is spotted ---------------
+  readonly property string folderText: folderField.text.trim()
+  readonly property bool folderIsLink: /^(https?:\/\/|github[:.])/i.test(view.folderText)
+  readonly property string folderError: {
+    if (!view.custom || view.folderText === "") return ""
+    if (view.folderIsLink) return "That looks like a link, not a folder."
+    var t = view.folderText
+    if (t === "~" || t.indexOf("~/") === 0 || t.indexOf(view.svc.home + "/") === 0) return ""
+    return "The folder must be inside your home directory."
+  }
+  // Errors from `set` go next to the field they are about.
+  readonly property string saveError: view.svc.settingsError
+  readonly property string sourceSaveError: /source/i.test(view.saveError) ? view.saveError : ""
+  readonly property string folderSaveError: !view.sourceSaveError && /folder/i.test(view.saveError) ? view.saveError : ""
+  readonly property string otherSaveError: view.saveError !== "" && !view.sourceSaveError && !view.folderSaveError ? view.saveError : ""
+  readonly property bool canSave: view.ready && view.sourceState !== "checking" && view.sourceState !== "error" && view.folderError === ""
+
+  Timer { id: resolveTimer; interval: 450; onTriggered: view.svc.resolveSource(sourceField.text) }
+
   function load() {
     nameField.text = view.cfg.name || ""
     argsField.text = view.cfg.args || ""
     sourceField.text = view.repoOf(view.cfg.source)
+    view.svc.resolveSource(sourceField.text)
     folderField.text = ""
     view.dir = view.cfg.dir || ""
     view.custom = false
@@ -31,14 +63,14 @@ Item {
   }
 
   function save() {
-    if (!view.ready) return
+    if (!view.canSave) return
     var out = []
     var name = nameField.text.trim()
     if (name !== "" && name !== view.cfg.name) out.push("--name", name)
     var dir = view.custom ? folderField.text.trim() : view.dir
     if (dir !== "" && dir !== view.cfg.dir) out.push("--dir", dir)
     if (argsField.text.trim() !== (view.cfg.args || "")) out.push("--args", argsField.text.trim())
-    if (sourceField.text.trim() !== view.repoOf(view.cfg.source)) out.push("--source", sourceField.text.trim())
+    if (view.sourceValue !== view.repoOf(view.cfg.source)) out.push("--source", view.sourceValue)
     if (view.hidden !== (view.cfg.hidden === true)) out.push("--hidden", view.hidden ? "true" : "false")
     if (out.length === 0) view.svc.closeSettings()
     else view.svc.saveSettings(out)
@@ -55,6 +87,14 @@ Item {
     font.family: Style.font.family
     font.pixelSize: Style.font.caption
     font.letterSpacing: 1
+  }
+  component Note: Text {
+    property bool bad: false
+    Layout.fillWidth: true
+    color: bad ? Color.urgent : Color.muted
+    font.family: Style.font.family
+    font.pixelSize: Style.font.caption
+    wrapMode: Text.Wrap
   }
   component Hint: Text {
     Layout.fillWidth: true
@@ -138,6 +178,39 @@ Item {
       }
     }
 
+    // Source: where updates come from. One field takes any link form.
+    ColumnLayout {
+      Layout.fillWidth: true
+      spacing: Style.spacing.md
+      Label { text: "SOURCE" }
+      Field {
+        id: sourceField
+        Layout.fillWidth: true
+        placeholder: "Paste a GitHub link or owner/repo"
+        onTextChanged: if (view.visible) resolveTimer.restart()
+        onAccepted: view.save()
+      }
+      Note {
+        visible: view.sourceState === "empty"
+        text: "Not updated automatically. Paste a link to the app's GitHub releases page to be told when a new version is out."
+      }
+      Note { visible: view.sourceState === "checking"; text: "Checking..." }
+      Note {
+        visible: view.sourceState === "ok"
+        text: "\u2713 " + view.res.repo + "  \u00b7  latest " + view.res.tag + "\n" + view.res.asset
+          + (view.svc.checkHours > 0 ? "  \u00b7  checked every " + (view.svc.checkHours === 1 ? "hour" : view.svc.checkHours + " hours") : "")
+      }
+      Note { visible: view.sourceState === "warn"; text: view.res.error + ". It will be saved as typed and checked later." }
+      Note { visible: view.sourceState === "error"; bad: true; text: view.res.error }
+      Note { visible: view.sourceSaveError !== ""; bad: true; text: view.sourceSaveError }
+      Button {
+        visible: view.sourceState !== "empty"
+        text: "Remove source"
+        bordered: true
+        onClicked: sourceField.text = ""
+      }
+    }
+
     // Location
     ColumnLayout {
       Layout.fillWidth: true
@@ -167,6 +240,14 @@ Item {
         placeholder: "~/Tools/AppImages  (inside your home folder)"
         onAccepted: view.save()
       }
+      Note { visible: view.folderError !== ""; bad: true; text: view.folderError }
+      Button {
+        visible: view.custom && view.folderIsLink
+        text: "Use it as the update source instead"
+        bordered: true
+        onClicked: { sourceField.text = folderField.text.trim(); folderField.text = ""; view.custom = false }
+      }
+      Note { visible: view.folderSaveError !== ""; bad: true; text: view.folderSaveError }
       Hint { text: "Changing the folder moves the file. " + view.svc.short(view.cfg.path || "") }
     }
 
@@ -184,20 +265,6 @@ Item {
       Hint { text: "Added to the command the app launcher runs." }
     }
 
-    // Update source
-    ColumnLayout {
-      Layout.fillWidth: true
-      spacing: Style.spacing.md
-      Label { text: "UPDATE SOURCE" }
-      Field {
-        id: sourceField
-        Layout.fillWidth: true
-        placeholder: "GitHub owner/repo"
-        onAccepted: view.save()
-      }
-      Hint { text: "Releases of this GitHub repository are checked for updates. Leave empty for none." }
-    }
-
     // Launcher visibility
     ColumnLayout {
       Layout.fillWidth: true
@@ -212,8 +279,8 @@ Item {
 
     Text {
       Layout.fillWidth: true
-      visible: view.svc.settingsError !== ""
-      text: view.svc.settingsError
+      visible: view.otherSaveError !== ""
+      text: view.otherSaveError
       color: Color.urgent
       wrapMode: Text.Wrap
       font.family: Style.font.family
@@ -232,6 +299,7 @@ Item {
       Button {
         text: view.svc.settingsState === "saving" ? "Saving..." : "Save"
         selected: true
+        opacity: view.canSave ? 1 : 0.4
         onClicked: view.save()
       }
     }
