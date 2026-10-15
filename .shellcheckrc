@@ -11,5 +11,6 @@
 #   SC2094  a file read in a loop while a different command appends to a sibling
 #   SC2155  `local x=$(...)` where the exit status is not used
 #   SC2329  a function that is only called indirectly (scripts/check.sh runs them through `step`)
-disable=SC2034,SC2154,SC1090,SC1091,SC2012,SC2010,SC2016,SC2086,SC2094,SC2155,SC2329
+#   SC2317  the same finding under its older number, which the shellcheck on the CI runner still uses
+disable=SC2034,SC2154,SC1090,SC1091,SC2012,SC2010,SC2016,SC2086,SC2094,SC2155,SC2329,SC2317
 external-sources=true

@@ -276,11 +276,12 @@ cmd_info() {
     mkdir -p "$cache"; icon="$cache/preview-$$.${M_ICON##*.}"; cp "$M_ICON" "$icon"
   fi
   sync_external
-  id=$(slug "$M_NAME"); rec_exists "$id" && installed=true
+  local iversion="" idir=""
+  id=$(slug "$M_NAME")
+  if rec_exists "$id"; then installed=true; iversion=$(db_get "$id" VERSION); idir=$(dirname "$(app_exec "$id")"); fi
   jq -nc --arg name "$M_NAME" --arg comment "$M_COMMENT" --arg cats "$M_CATS" --arg icon "$icon" \
     --arg version "$M_VERSION" --arg size "$(du -h "$1" | cut -f1)" --arg path "$(realpath "$1")" --arg id "$id" \
-    --arg installedVersion "$([[ $installed == true ]] && db_get "$id" VERSION || true)" \
-    --arg installedDir "$([[ $installed == true ]] && dirname "$(app_exec "$id")" || true)" --argjson installed "$installed" \
+    --arg installedVersion "$iversion" --arg installedDir "$idir" --argjson installed "$installed" \
     '{name:$name,comment:$comment,categories:$cats,icon:$icon,version:$version,size:$size,path:$path,id:$id,installed:$installed,installedVersion:$installedVersion,installedDir:$installedDir}'
 }
 
@@ -411,10 +412,14 @@ cmd_config() {
   id=$(slug "$1")
   rec_exists "$id" || die "not installed: $id"
   exe=$(app_exec "$id"); desk=$(rec_launcher "$id"); src=$(db_get "$id" SOURCE)
-  [[ ! -f "$desk" ]] || { grep -q '^NoDisplay=true' "$desk" && hidden=true || true; }
+  local dargs=""
+  if [[ -f "$desk" ]]; then
+    if grep -q '^NoDisplay=true' "$desk"; then hidden=true; fi
+    dargs=$(exec_args "$desk")
+  fi
   rec_external "$id" && external=true
   jq -nc --arg id "$id" --arg name "$(db_get "$id" NAME)" --arg path "$exe" --arg dir "$(dirname "$exe")" \
-    --arg args "$([[ -f "$desk" ]] && exec_args "$desk" || true)" --arg source "$src" --arg kind "$(rec_source_kind "$id")" --arg repo "$(rec_repo "$id")" --arg version "$(db_get "$id" VERSION)" \
+    --arg args "$dargs" --arg source "$src" --arg kind "$(rec_source_kind "$id")" --arg repo "$(rec_repo "$id")" --arg version "$(db_get "$id" VERSION)" \
     --argjson hidden "$hidden" --argjson external "$external" \
     '{id:$id,name:$name,path:$path,dir:$dir,args:$args,source:$source,sourceKind:$kind,repo:$repo,version:$version,hidden:$hidden,external:$external}'
 }
