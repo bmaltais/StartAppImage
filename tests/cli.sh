@@ -290,6 +290,25 @@ t_integration_reports_the_defaults() {
   eq "$(jqv '.done')" false "done"
 }
 
+t_integration_carries_the_recommended_defaults() {
+  cli integration; ok
+  eq "$(jqv '.defaults.checkHours')" 6 "default hours"
+  eq "$(jqv '.defaults.rememberSize')" true "default rememberSize"
+  eq "$(jqv '.defaults.rememberPosition')" true "default rememberPosition"
+  eq "$(jqv '.defaults.launcher')" true "default launcher"
+  eq "$(jqv '.defaults.handler')" true "default handler"
+  eq "$(jqv '.defaults.cli')" true "default cli"
+  eq "$(jqv '.defaults.barIcon')" false "default barIcon"
+}
+
+t_a_setting_nobody_changed_reads_as_its_default() {
+  cli integration
+  eq "$(jqv '.checkHours')" "$(jqv '.defaults.checkHours')" "hours"
+  eq "$(jqv '.rememberSize')" "$(jqv '.defaults.rememberSize')" "rememberSize"
+  mkdir -p "$HOME/.config/startappimage"; printf 'CHECK_HOURS=soon\n' >"$HOME/.config/startappimage/config"
+  cli integration; eq "$(jqv '.checkHours')" 6 "hours when the saved value is not a number"
+}
+
 t_setup_stores_the_hours_and_marks_setup_done() {
   cli setup --check-hours 12; ok
   cli integration

@@ -9,6 +9,10 @@ cfg_set() {
   mkdir -p "$(dirname "$CONFIG_FILE")"
   { grep -v "^$1=" "$CONFIG_FILE" 2>/dev/null || true; echo "$1=$2"; } >"$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
 }
+cfg_bool() { # KEY -> true|false; a key nobody set reads as the default for remembering
+  local v; v=$(cfg_get "$1")
+  if [[ -z $v ]]; then echo "$DEFAULT_REMEMBER"; else [[ $v == false ]] && echo false || echo true; fi
+}
 # Where new installs go: the folder last chosen with --dir, else the legacy default.
 APP_DIR="${STARTAPPIMAGE_DIR:-$(cfg_get INSTALL_DIR)}"
 APP_DIR="${APP_DIR:-$LEGACY_APP_DIR}"
@@ -661,6 +665,11 @@ cli_off() { [[ $(cli_state) != ours ]] || rm -f "$CLI_LINK"; }
 
 short_home() { local p=$1; [[ $p == "$HOME"/* ]] && p="~${p#"$HOME"}"; printf '%s' "$p"; }
 
+# The recommended settings, in one place: what a first run offers, what Reset goes back to,
+# and what a setting reads as before anyone changed it. `integration` hands them to the UI as "defaults".
+DEFAULT_CHECK_HOURS=6
+DEFAULT_REMEMBER=true
+
 # JSON for the setup card: what is switched on, and what would be replaced.
 cmd_integration() {
   need jq
@@ -676,11 +685,13 @@ cmd_integration() {
   local finished=false
   { [[ $(cfg_get SETUP_DONE) == 1 ]] || { [[ $launcher == true && $ours == true ]]; }; } && finished=true
   jq -n --argjson launcher "$launcher" --argjson ours "$ours" --argjson finished "$finished" \
-    --arg handler "$h" --arg handlerName "$hname" --arg cli "$(cli_state)" --arg cliPath "$(short_home "$CLI_LINK")" --argjson hours "$(cfg_get CHECK_HOURS | grep -E '^[0-9]+$' || echo 6)" \
+    --arg handler "$h" --arg handlerName "$hname" --arg cli "$(cli_state)" --arg cliPath "$(short_home "$CLI_LINK")" --argjson hours "$(cfg_get CHECK_HOURS | grep -E '^[0-9]+$' || echo "$DEFAULT_CHECK_HOURS")" \
     --argjson baricon "$(bar_icon_state)" \
-    --argjson rsize "$([[ $(cfg_get REMEMBER_SIZE) == false ]] && echo false || echo true)" \
-    --argjson rpos "$([[ $(cfg_get REMEMBER_POSITION) == false ]] && echo false || echo true)" \
-    '{launcher:$launcher, handler:{ours:$ours, current:$handler, name:$handlerName}, cli:{state:$cli, path:$cliPath}, checkHours:$hours, barIcon:$baricon, rememberSize:$rsize, rememberPosition:$rpos, done:$finished}'
+    --argjson rsize "$(cfg_bool REMEMBER_SIZE)" \
+    --argjson rpos "$(cfg_bool REMEMBER_POSITION)" \
+    --argjson dhours "$DEFAULT_CHECK_HOURS" --argjson dremember "$DEFAULT_REMEMBER" \
+    '{launcher:$launcher, handler:{ours:$ours, current:$handler, name:$handlerName}, cli:{state:$cli, path:$cliPath}, checkHours:$hours, barIcon:$baricon, rememberSize:$rsize, rememberPosition:$rpos, done:$finished,
+      defaults:{launcher:true, handler:true, cli:true, barIcon:false, checkHours:$dhours, rememberSize:$dremember, rememberPosition:$dremember}}'
 }
 
 # setup [--launcher true|false] [--handler true|false] [--cli true|false] [--done]
