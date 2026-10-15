@@ -169,7 +169,7 @@ A change is done once it has been seen working in the test session: see [testing
 
 ## Shared UI code
 
-The controls above, `SettingsWindow`, the drag-and-resize behaviour and the tour recorder (`scripts/tour.sh`) are meant to be shared by every Start app, so each does not keep its own copy. That is not done yet; the proposal is a shared `StartUI` repository copied into each app (git subtree). Until it exists, this repo is the reference implementation and StartBar's settings window is the reference design.
+The controls above, `SettingsWindow`, the drag-and-resize behaviour and the tour recorder (now the shared devkit, `scripts/devkit`) are meant to be shared by every Start app, so each does not keep its own copy. That is not done yet; the proposal is a shared `StartUI` repository added to each app as a git submodule. Until it exists, this repo is the reference implementation and StartBar's settings window is the reference design.
 
 ## Decision log
 
