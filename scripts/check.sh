@@ -26,7 +26,8 @@ icons() {
 }
 
 step "shell scripts (bash -n, shellcheck)" scripts/lint-sh.sh
-step "project rules (scripts/devkit/bin/lint)" scripts/devkit/bin/lint .
+if [[ -x scripts/devkit/bin/lint ]]; then step "project rules (scripts/devkit/bin/lint)" scripts/devkit/bin/lint .
+else echo "  skip  project rules (scripts/devkit is empty: git submodule update --init scripts/devkit)"; fi
 step "CLI behaviour (tests/cli.sh)" tests/cli.sh
 step "QML (qmllint, new warnings only)" scripts/lint-qml.py
 if command -v omarchy >/dev/null; then step "plugin manifest (omarchy plugin validate)" omarchy plugin validate .

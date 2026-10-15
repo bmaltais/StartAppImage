@@ -29,6 +29,8 @@ The QML never edits files itself: it asks `bin/startappimage` and reads its JSON
 
 ## Development install
 
+Clone with `git clone --recurse-submodules` (or run `git submodule update --init` in an existing clone): `scripts/devkit`, the test session and recorder, is a submodule of the shared [omarchy-plugin-devkit](https://github.com/bmaltais/omarchy-plugin-devkit). It is development tooling, so it is not in what `omarchy plugin add` installs.
+
 The plugin is a `service` with `keepLoaded`, so the shell keeps the running copy and does not reload it when a file changes. Restart the shell after each edit:
 
 ```sh

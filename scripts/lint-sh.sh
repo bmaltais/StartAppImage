@@ -6,6 +6,8 @@
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+# scripts/devkit is a submodule: without it checked out its globs match nothing and are left out.
+shopt -s nullglob
 files=(bin/startappimage scripts/*.sh scripts/dev scripts/reload scripts/sheet tests/*.sh scripts/tours/*.sh scripts/devkit/bin/* scripts/devkit/lib/*.sh .githooks/pre-commit)
 for f in "${files[@]}"; do
   bash -n "$f"

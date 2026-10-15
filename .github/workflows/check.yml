@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       # The QML and manifest checks in scripts/check.sh need Qt and Omarchy, which this runner does not have;
       # they run in the pre-commit hook. Shell scripts need only shellcheck, which the runner ships.
       - run: scripts/lint-sh.sh

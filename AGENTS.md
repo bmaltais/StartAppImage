@@ -27,4 +27,4 @@ Reference for the settings window: StartBar, `~/.config/omarchy/plugins/io.githu
 
 ## Recorder
 
-`docs/recording-tours.md` before changing `scripts/tours/` or `devkit.conf`. The session and recorder themselves are the shared devkit's (`scripts/devkit`, a git subtree of `bmaltais/omarchy-plugin-devkit`): fix a bug there in that repository and `git subtree pull`, do not edit the copy here.
+`docs/recording-tours.md` before changing `scripts/tours/` or `devkit.conf`. The session and recorder themselves are the shared devkit's (`scripts/devkit`, a git submodule of `bmaltais/omarchy-plugin-devkit`, so it is not in what users install or what the marketplace reviews; clone with `--recurse-submodules`, or `git submodule update --init`): fix a bug there in that repository, release it, and move the pointer (`git -C scripts/devkit checkout vX.Y.Z`, then commit); do not edit the files here.
