@@ -64,8 +64,8 @@ Open **StartAppImage** from the app launcher, or bind a key to it (see [Commands
 
 - **One row per app.** Its icon, name, version and where it came from, with a dot that turns to your accent colour when an update is waiting.
 - **Open, settings, uninstall.** Three buttons on every row. Uninstall asks first. A click anywhere on a row highlights it.
-- **Updates.** Apps installed from a GitHub release are checked every six hours, with a notification when something new is out. **Update** and **Update all** appear when there is something to update.
-- **Add from anywhere.** **Add AppImage…** takes a file path, a download URL or `github:owner/repo`.
+- **Updates.** Apps installed from a GitHub release are checked every six hours by default (change it, or turn it off, on the setup card or with `setup --check-hours N`). A system popup with **Update** and **Open manager** buttons appears when something new is out. **Update** and **Update all** appear when there is something to update.
+- **Add from anywhere.** **Add AppImage…** takes a file path, a download URL or `github:owner/repo` or a github.com/owner/repo(/releases) link.
 - **Apps installed by something else.** Any launcher entry that starts an `.AppImage` is adopted and tagged `EXTERNAL`, so apps put there by another launcher are listed too. You can open, configure and uninstall them like the rest. Uninstalling an external app deletes its file, so the confirmation asks "Delete the app?". StartAppImage does not update them unless you give them an update source.
 - **Search and keyboard.** Type to search. `Up` and `Down` move, `Enter` opens, `Ctrl+U` updates, `Delete` uninstalls and `Esc` clears the search, then closes.
 

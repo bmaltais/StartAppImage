@@ -149,10 +149,10 @@ Item {
     root.close()
   }
 
-  function applySetup(launcher, handler, cli) {
+  function applySetup(launcher, handler, cli, hours) {
     if (setupProc.running) return
     root.setupBusy = true
-    setupProc.command = [root.cli, "setup", "--launcher", String(launcher), "--handler", String(handler), "--cli", String(cli)]
+    setupProc.command = [root.cli, "setup", "--launcher", String(launcher), "--handler", String(handler), "--cli", String(cli), "--check-hours", String(hours)]
     setupProc.running = true
   }
 
@@ -426,15 +426,31 @@ Item {
     fresh.forEach(function (id) { next[id] = root.updates[id] })
     root.notified = next
     if (root.shown) return
-    Quickshell.execDetached(["notify-send", "-a", "StartAppImage", "-i", "startappimage",
+    notifyProc.command = ["notify-send", "-a", "StartAppImage", "-i", "startappimage",
+      "-A", "update=Update", "-A", "open=Open manager",
       fresh.length === 1 ? "Update available" : fresh.length + " updates available",
-      fresh.join(", ") + " - open StartAppImage to update"])
+      fresh.map(function (id) { return id + " " + root.updates[id] }).join(", ")]
+    notifyProc.running = true
   }
 
-  Timer { interval: 20000; running: true; onTriggered: root.check() }
+  // notify-send -A prints the chosen action when the popup is clicked, then exits.
+  Process {
+    id: notifyProc
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var choice = text.trim()
+        if (choice === "update") root.updateAll()
+        else if (choice === "open") root.showManager()
+      }
+    }
+  }
+
+  Timer { interval: 20000; running: root.checkHours > 0; onTriggered: root.check() }
   // Once the shell has settled, offer setup if it has never been answered.
   Timer { interval: 4000; running: true; onTriggered: { root.offerSetup = true; integProc.running = true } }
-  Timer { interval: 6 * 60 * 60 * 1000; running: true; repeat: true; onTriggered: root.check() }
+  // Hours between background checks; 0 turns them off. Set on the setup card.
+  readonly property int checkHours: root.integ.checkHours !== undefined ? root.integ.checkHours : 6
+  Timer { interval: Math.max(1, root.checkHours) * 60 * 60 * 1000; running: root.checkHours > 0; repeat: true; onTriggered: root.check() }
   Timer { id: noticeTimer; interval: 6000; onTriggered: root.notice = "" }
 
   // ---- the window ------------------------------------------------------------------------

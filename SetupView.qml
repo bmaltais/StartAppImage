@@ -13,6 +13,7 @@ Item {
   property bool launcher: true
   property bool handler: true
   property bool cli: true
+  property int hours: 6
 
   readonly property var integ: view.svc.integ
   readonly property bool otherHandler: !!(view.integ.handler && !view.integ.handler.ours && view.integ.handler.current)
@@ -30,10 +31,12 @@ Item {
       view.launcher = i.launcher
       view.handler = i.handler.ours
       view.cli = i.cli.state === "ours"
+      view.hours = i.checkHours
     } else {
       view.launcher = true
       view.handler = true
       view.cli = !view.cliBlocked
+      view.hours = 6
     }
   }
   onVisibleChanged: if (visible) view.load()
@@ -134,6 +137,21 @@ Item {
       }
     }
 
+    // Update checks
+    ColumnLayout {
+      Layout.fillWidth: true
+      spacing: Style.spacing.md
+      Label { text: "CHECK FOR UPDATES" }
+      Row {
+        spacing: Style.spacing.md
+        Repeater {
+          model: [{ h: 1, t: "Hourly" }, { h: 6, t: "6 hours" }, { h: 24, t: "Daily" }, { h: 168, t: "Weekly" }, { h: 0, t: "Never" }]
+          Chip { label: modelData.t; selected: view.hours === modelData.h; onClicked: view.hours = modelData.h }
+        }
+      }
+      Hint { text: "Apps installed from a GitHub release are checked in the background, and a popup offers the update when a new version is out." }
+    }
+
     Hint { text: "Only your home folder is touched, and every choice can be changed later from the setup button in the manager." }
 
     RowLayout {
@@ -148,7 +166,7 @@ Item {
       Button {
         text: view.svc.setupBusy ? "Applying..." : "Apply"
         selected: true
-        onClicked: view.svc.applySetup(view.launcher, view.handler, view.cli && !view.cliBlocked)
+        onClicked: view.svc.applySetup(view.launcher, view.handler, view.cli && !view.cliBlocked, view.hours)
       }
     }
   }
