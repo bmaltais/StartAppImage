@@ -1,5 +1,8 @@
 <p align="center">
-  <img alt="A tour of StartAppImage: the install card for a double-clicked AppImage, the manager with an update waiting and one click to update it, pointing an app at its GitHub releases with a live check of the link, settings that apply as you change them, and resizing and moving the window" src="screenshots/hero.avif" width="900" />
+  <!-- In a <picture>, GitHub does not wrap the image in a link to the file, so clicking it does nothing. -->
+  <picture>
+    <img alt="A tour of StartAppImage: the install card for a double-clicked AppImage, the manager with an update waiting and one click to update it, pointing an app at its GitHub releases with a live check of the link, settings that apply as you change them, and resizing and moving the window" src="screenshots/hero.avif" width="100%" />
+  </picture>
 </p>
 
 <h1 align="center">StartAppImage</h1>

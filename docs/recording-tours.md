@@ -270,4 +270,14 @@ The recorder has no StartAppImage in it. To use it for another app:
 1. Copy `scripts/tour.sh` into the app's repo (it will live in a shared repository when the Start apps get one, see "Shared UI code" in [ui-standards.md](ui-standards.md)).
 2. Write the app's tour file in its `scripts/tours/` (start from the minimal tour above, and copy `scripts/tours/hero.sh` for a worked example with `tour_prepare` and `tour_restore`).
 3. Set `TOUR_TITLE`, `TOUR_OUT` and `TOUR_LAYER`, find the coordinates, and run it without `--install` until it reads well.
-4. Add `screenshots/hero.avif` (or wherever `TOUR_OUT` points) to the app's README, and a line to its contributing notes about retaking it.
+4. Add `screenshots/hero.avif` (or wherever `TOUR_OUT` points) to the app's README, and a line to its contributing notes about retaking it. Put the image in a `<picture>` so that clicking it does nothing:
+
+   ```html
+   <p align="center">
+     <picture>
+       <img alt="What the tour shows" src="screenshots/hero.avif" width="100%" />
+     </picture>
+   </p>
+   ```
+
+   GitHub wraps a plain `<img>` (and a Markdown `![](…)`) in a link to the image file, so a click opens the file's page. It does not do that for an image inside `<picture>` (checked with GitHub's Markdown renderer). `width="100%"` keeps it within a narrow page, as `<picture>` loses GitHub's `max-width`.

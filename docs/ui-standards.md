@@ -189,6 +189,7 @@ Newest first. One line each: what was decided, and why.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-15 | The README hero sits in a `<picture>`, so GitHub does not turn it into a link to the image file | A click on the animation opened its file page, which is not what a viewer expects of a demo. GitHub links a bare `<img>`; not one in a `<picture>` |
 | 2026-10-15 | The README hero is an animated AVIF (`screenshots/hero.avif`, about 0.4 MB at crf 40), not a GIF (3.3 MB), with no fallback | It plays in the browsers we use (checked on the maintainer's Omarchy browser) and on GitHub, and is eight times smaller. A `.gif` result is still one setting away for places that cannot show AVIF |
 | 2026-10-15 | Tour captions stay up long enough to read (150 words a minute plus a moment, never under 2.5 s), and the pointer waits for the average reading time (238 wpm) before it moves after a new caption | Humans read slowly, and a caption that vanishes or a pointer that moves while it is being read makes the tour hard to follow |
 | 2026-10-15 | After an update succeeds the app is dropped from the "updates waiting" list at once | The row flashed "Update available" again for about a second until the next check finished, which looked like the click had not worked |
