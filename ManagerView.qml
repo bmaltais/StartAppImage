@@ -91,7 +91,7 @@ Item {
       }
       Button {
         iconText: ""
-        tooltipText: "Setup: launcher, file handler, command line"
+        tooltipText: "Settings"
         onClicked: view.svc.showSetup()
       }
       Button {
