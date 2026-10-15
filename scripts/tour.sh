@@ -5,7 +5,7 @@
 #   scripts/tour.sh TOURFILE [--install] [--yes] [--nested]
 #
 #   TOURFILE    a bash file that defines the tour (see "Writing a tour" below), e.g. scripts/tours/hero.sh
-#   --install   copy the GIF to the tour's TOUR_OUT in the repo (default: leave it in $TMPDIR and say where)
+#   --install   copy the result to the tour's TOUR_OUT in the repo (default: leave it in $TMPDIR and say where)
 #   --yes       do not ask first (for when it is run from another script)
 #   --nested    run the tour in a nested session shown in a window on your screen, instead of on a hidden virtual
 #               monitor: you can watch it, your mouse and keyboard cannot reach it, and it changes only a sandbox,
@@ -26,7 +26,8 @@
 #
 #   Variables
 #     TOUR_TITLE         the app's name, for the notification            (required)
-#     TOUR_OUT           the GIF's path in the repo, e.g. screenshots/hero.gif   (default screenshots/hero.gif)
+#     TOUR_OUT           the result's path in the repo; its extension picks the format, .avif (animated AVIF, small) or
+#                        .gif                                                       (default screenshots/hero.avif)
 #     TOUR_LAYER         the layer-shell namespace of the app's window; keys and typing are only sent while
 #                        it is up on the virtual monitor, so they never reach anything else   (required to use key/typed/esc)
 #     TOUR_STEPS         how many steps (calls to `cap`) it has, for "Step 2 of 6"   (optional)
@@ -73,7 +74,7 @@ tourfile=$(cd "$(dirname "$tourfile")" && pwd)/$(basename "$tourfile")
 # shellcheck disable=SC1090
 source "$tourfile"
 : "${TOUR_TITLE:?the tour file must set TOUR_TITLE}"
-: "${TOUR_OUT:=screenshots/hero.gif}"
+: "${TOUR_OUT:=screenshots/hero.avif}"
 : "${TOUR_SIZE:=1280x800}"
 : "${TOUR_BG:=#262a36}"
 : "${TOUR_LAYER:=}"
@@ -500,17 +501,34 @@ while IFS='|' read -r ts text; do
   echo "tour: caption $i ($words words) on screen $(awk -v a="$start" -v b="$end" 'BEGIN { printf "%.1f", b - a }') s (reading time $(awk -v w="$words" -v wpm="$READ_WPM" 'BEGIN { h = 0.95 + w * 60 / wpm; if (h < 2.5) h = 2.5; printf "%.1f", h }') s)" >&2
   vf+="drawtext=fontfile=$TOUR_FONT:text='$text':fontsize=24:fontcolor=white:box=1:boxcolor=0x13151f@0.88:boxborderw=14:x=(w-text_w)/2:y=h-70:enable='between(t,$start,$end)',"
 done <"$caps"
-ffmpeg -loglevel error -y -ss 0.4 -i "$TMP/tour.mp4" \
-  -vf "${vf}fps=10,scale=${TOUR_GIF_WIDTH:-1000}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${TOUR_GIF_COLORS:-128}:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" \
-  -loop 0 "$TMP/tour.gif"
-echo "tour: $(du -h "$TMP/tour.gif" | cut -f1)"
+printf '%s' "$vf" >"$TMP/vf.txt"
+
+# The result is an AVIF or a GIF, by the extension of TOUR_OUT (a tour file sets it; the default is screenshots/hero.avif).
+# An animated AVIF holds the same 79 seconds in under half a megabyte where a GIF takes over three, so AVIF is the
+# default for the README; browsers show it in an <img>, and GitHub serves it as image/avif.
+#   AVIF: TOUR_AVIF_CRF sets the quality (lower is sharper and bigger; 40 by default, 32 is crisper, 24 sharper still)
+#   GIF:  TOUR_GIF_COLORS sets the palette (128 by default)
+#   both: TOUR_GIF_WIDTH sets the width in pixels (1000 by default)
+width=${TOUR_GIF_WIDTH:-1000}
+case ${TOUR_OUT##*.} in
+  avif)
+    ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libaom-av1 || { echo "tour: ffmpeg has no libaom-av1 encoder, which an .avif needs" >&2; exit 1; }
+    ffmpeg -loglevel error -y -ss 0.4 -i "$TMP/tour.mp4" \
+      -vf "${vf}fps=10,scale=${width}:-1:flags=lanczos,format=yuv420p" \
+      -c:v libaom-av1 -crf "${TOUR_AVIF_CRF:-40}" -b:v 0 -cpu-used 6 -f avif "$TMP/result" ;;
+  *)
+    ffmpeg -loglevel error -y -ss 0.4 -i "$TMP/tour.mp4" \
+      -vf "${vf}fps=10,scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${TOUR_GIF_COLORS:-128}:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" \
+      -loop 0 -f gif "$TMP/result" ;;
+esac
+echo "tour: ${TOUR_OUT##*.} $(du -h "$TMP/result" | cut -f1)"
 
 if $install; then
   mkdir -p "$(dirname "$REPO/$TOUR_OUT")"
-  cp "$TMP/tour.gif" "$REPO/$TOUR_OUT"
+  cp "$TMP/result" "$REPO/$TOUR_OUT"
   echo "tour: wrote $REPO/$TOUR_OUT"
 else
   keep=${TMPDIR:-/tmp}/$(basename "$TOUR_OUT")
-  cp "$TMP/tour.gif" "$keep"
+  cp "$TMP/result" "$keep"
   echo "tour: look at $keep, then run again with --install"
 fi

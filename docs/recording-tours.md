@@ -1,6 +1,6 @@
 # Recording tours
 
-How to record a short GIF that shows an app being used, with `scripts/tour.sh`. It made `screenshots/hero.gif`, the tour at the top of the README. The recorder is **not specific to StartAppImage**: every Start app can use it, each with its own *tour file* that says what to do.
+How to record a short animation that shows an app being used, with `scripts/tour.sh`. It made `screenshots/hero.avif`, the tour at the top of the README. The recorder is **not specific to StartAppImage**: every Start app can use it, each with its own *tour file* that says what to do.
 
 - [Run the StartAppImage tour](#run-the-startappimage-tour)
 - [What you need](#what-you-need)
@@ -17,8 +17,8 @@ How to record a short GIF that shows an app being used, with `scripts/tour.sh`. 
 ## Run the StartAppImage tour
 
 ```sh
-scripts/hero.sh              # records it, leaves the GIF in /tmp/hero.gif for a look
-scripts/hero.sh --install    # records it and copies it to screenshots/hero.gif
+scripts/hero.sh              # records it, leaves the result in /tmp/hero.avif for a look
+scripts/hero.sh --install    # records it and copies it to screenshots/hero.avif
 scripts/hero.sh --yes        # does not ask first (for when another script runs it)
 scripts/hero.sh --nested     # runs it in a window you can watch, in a sandbox (see "Nested mode")
 ```
@@ -55,7 +55,7 @@ This one opens StartAppImage's manager and searches. It is a complete tour:
 ```bash
 # shellcheck shell=bash
 TOUR_TITLE=StartAppImage              # the app's name, for the banner
-TOUR_OUT=screenshots/example.gif      # where --install puts the GIF
+TOUR_OUT=screenshots/example.avif     # where --install puts the result; .avif or .gif picks the format
 TOUR_LAYER=omarchy-startappimage      # the app window's layer-shell name (see below)
 
 tour_play() {
@@ -103,10 +103,10 @@ Take a screenshot at every state the tour passes through, and write the coordina
 
 ### 4. Look at it, and tune the timing
 
-Run without `--install`, then look at the GIF. A contact sheet shows every step at a glance:
+Run without `--install`, then look at the result. A contact sheet shows every step at a glance:
 
 ```sh
-ffmpeg -y -i /tmp/hero.gif -vf "fps=1/3.5,scale=520:-1" /tmp/f_%02d.png && magick montage /tmp/f_*.png -tile 3x -geometry +4+4 /tmp/sheet.png
+ffmpeg -y -f mov -i /tmp/hero.avif -map 0:v:1 -vf "fps=1/3.5,scale=520:-1" /tmp/f_%02d.png && magick montage /tmp/f_*.png -tile 3x -geometry +4+4 /tmp/sheet.png
 ```
 
 Give each caption enough time to be read (about 3 seconds for a short one), and let animations finish before the next click. Use `wait_until` for things that take as long as they take (a download), not a fixed `sleep`.
@@ -122,15 +122,16 @@ Anything the tour changes must come back. Save it in `tour_prepare`, restore it 
 | Variable | Meaning | Default |
 |---|---|---|
 | `TOUR_TITLE` | The app's name, for the banner. **Required.** | |
-| `TOUR_OUT` | The GIF's path in the repo, used by `--install` | `screenshots/hero.gif` |
+| `TOUR_OUT` | The result's path in the repo, used by `--install`. Its extension picks the format: `.avif` (animated AVIF) or `.gif` | `screenshots/hero.avif` |
 | `TOUR_LAYER` | The app window's layer-shell namespace; needed for `key`, `typed` and `esc` | none |
 | `TOUR_STEPS` | How many steps (`cap` calls), for "Step 2 of 6" | unknown |
 | `TOUR_SIZE` | The virtual monitor, `WxH` | `1280x800` |
 | `TOUR_BG` | The backdrop colour | `#262a36` |
 | `TOUR_RESTART_SHELL` | `1` to restart the Omarchy shell after `tour_prepare` and again at the end | `0` |
 | `TOUR_FONT` | The caption font file | JetBrains Mono Nerd Font Bold |
-| `TOUR_GIF_WIDTH` | The GIF's width in pixels (10 frames a second, one 128-colour palette) | `1000` |
-| `TOUR_GIF_COLORS` | The GIF's palette size. 64 posterizes a photo wallpaper; 256 is smoother but about 1.2 MB bigger | `128` |
+| `TOUR_GIF_WIDTH` | The width in pixels of the result, whichever format (10 frames a second) | `1000` |
+| `TOUR_AVIF_CRF` | AVIF quality, lower is sharper and bigger: 24 is 0.9 MB, 32 is 0.6 MB, 40 is 0.4 MB for the StartAppImage tour | `40` |
+| `TOUR_GIF_COLORS` | For a `.gif` result: its palette size. 64 posterizes a photo wallpaper; 256 is smoother but about 1.2 MB bigger | `128` |
 
 ### Functions a tour file defines
 
@@ -164,7 +165,7 @@ Other commands in `tour_play` are ordinary shell: opening the app (`omarchy-shel
 - **A virtual monitor**, because the real screen is yours: the recorder must not touch it, show its contents, or be disturbed by what is on it. Omarchy's screen recorder cannot see a virtual monitor, so frames are taken with `grim` (cursor included) in a loop, each file named for the time it was taken.
 - **Frame timing.** The frames are joined with `ffmpeg`'s concat demuxer, each shown for the time until the next one, so the video plays at the speed things really happened even though grabs take a variable time.
 - **Captions** are drawn by `ffmpeg`'s `drawtext`, each enabled between the time it was said and the time of the next.
-- **The GIF** uses a two-pass palette (`palettegen` then `paletteuse`) at 10 frames a second, 1000 px wide and 128 colours (`TOUR_GIF_WIDTH`, `TOUR_GIF_COLORS`), which keeps 78 seconds of UI to 3.4 MB. Measured on one recording: lowering the frame rate saves little (10 to 6 fps: 4.7 to 4.0 MB, because only the changed parts of a frame are stored), while width and colours matter most (900 px: 2.8 MB; 64 colours: 3.5 MB, but the photo wallpaper bands; 256 colours: 5.9 MB). A WebM of the same recording is about 1 MB, but a `<video>` of a repo file is not known to play in a GitHub README, so the GIF stays the hero.
+- **The result** is an **animated AVIF** by default (AV1 video in an image file, made with `libaom-av1`; `TOUR_AVIF_CRF`, default 40) at 10 frames a second and 1000 px wide: 79 seconds of UI in about 0.4 MB. It plays in an `<img>` in modern browsers, and GitHub serves it as `image/avif` and keeps `<img>` and `<picture>` tags for it (tested on GitHub with a throwaway branch). A `.gif` (`TOUR_OUT=....gif`) is the fallback for anywhere that cannot show AVIF: a two-pass palette (`palettegen`, `paletteuse`), 128 colours (`TOUR_GIF_COLORS`), 3.3 MB for the same tour. Measured on one recording: for the GIF, lowering the frame rate saves little (10 to 6 fps: 4.7 to 4.0 MB, as only the changed parts of a frame are stored) while width and colours matter most (900 px: 2.8 MB; 64 colours: 3.5 MB but the photo wallpaper bands; 256 colours: 5.9 MB). A WebM is about 0.8 MB but a `<video>` of a repo file is not known to play in a GitHub README, and an animated WebP came out bigger than the GIF. **ffprobe shows an AVIF's first image only** (the still cover); the animation is the second video stream, so use `ffprobe -f mov` or `-map 0:v:1`.
 - **The pointer** is moved with `hyprctl dispatch hl.dsp.cursor.move`, which places it, followed by a 1 px `ydotool` nudge, which makes Hyprland fire a real motion event so hovers work. Clicks and typing go through `ydotool`.
 - **The red window** (`scripts/tour-banner.qml`, which in `--nested` mode is a strip above the nested window plus the shield over it), run by `quickshell` as its own small instance next to the Omarchy shell (so a shell restart does not touch it): a centred, always-on-top layer-shell window on the real monitor. It runs twice: first in *confirm* mode (Proceed and Cancel, the answer is written to a file the recorder waits on), then in *status* mode, where it shows a text file the recorder rewrites at each step and turns green when it is told the tour is done. It redraws in place, so it does not flicker, and in status mode it takes no keyboard focus. Notifications cannot do this job: the Omarchy shell's, and Hyprland's own, appear on the focused monitor, which is the virtual one while recording, so they would end up in the GIF. (A first version used a terminal window that redrew its text four times a second; it flickered.)
 - **Keys only when the app is up.** `key`, `typed` and `esc` check that the app's layer is mapped on the virtual monitor first. Otherwise the keys would go to the backdrop window (a stray `q` quits `imv`) or somewhere worse.
@@ -269,4 +270,4 @@ The recorder has no StartAppImage in it. To use it for another app:
 1. Copy `scripts/tour.sh` into the app's repo (it will live in a shared repository when the Start apps get one, see "Shared UI code" in [ui-standards.md](ui-standards.md)).
 2. Write the app's tour file in its `scripts/tours/` (start from the minimal tour above, and copy `scripts/tours/hero.sh` for a worked example with `tour_prepare` and `tour_restore`).
 3. Set `TOUR_TITLE`, `TOUR_OUT` and `TOUR_LAYER`, find the coordinates, and run it without `--install` until it reads well.
-4. Add `screenshots/hero.gif` (or wherever `TOUR_OUT` points) to the app's README, and a line to its contributing notes about retaking it.
+4. Add `screenshots/hero.avif` (or wherever `TOUR_OUT` points) to the app's README, and a line to its contributing notes about retaking it.
