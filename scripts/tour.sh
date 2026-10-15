@@ -107,8 +107,10 @@ status="$TMP/status.txt"
 orig_mon=$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name')
 banner_pid=""
 guide="The pointer is driving a virtual screen and typing goes there."
-say() { # LINE: the step it is on; "done" as the first argument says it is over
-  if [[ $1 == "done" ]]; then printf 'done\n' >"$status.new"; else printf 'recording\n%s\n' "$1" >"$status.new"; fi
+say() { # [STATE] TEXT: the step it is on. STATE is starting, encoding, cancelled or done; without one it is "recording"
+  local state=recording
+  case $1 in starting | encoding | cancelled | done) state=$1; shift ;; esac
+  printf '%s\n%s\n' "$state" "$*" >"$status.new"
   mv "$status.new" "$status"
 }
 confirm() { # asks; returns non-zero if the answer is not Proceed
@@ -121,12 +123,26 @@ confirm() { # asks; returns non-zero if the answer is not Proceed
   wait "$qpid" 2>/dev/null
   [[ $(cat "$answer" 2>/dev/null) == proceed ]]
 }
+# Your real home and XDG directories, as they are now: in --nested mode the sandbox's replace them, and this window
+# must not carry those (it would be taken for part of the nested session and stopped with it).
+real_home=$HOME
+real_xdg_config=${XDG_CONFIG_HOME:-$HOME/.config}
+real_xdg_data=${XDG_DATA_HOME:-$HOME/.local/share}
+real_xdg_state=${XDG_STATE_HOME:-$HOME/.local/state}
+real_xdg_cache=${XDG_CACHE_HOME:-$HOME/.cache}
 start_banner() {
-  say "Starting..."
-  TOUR_MODE=status TOUR_TITLE=$TOUR_TITLE TOUR_SCREEN=$orig_mon TOUR_STATUS=$status \
+  say starting "Starting the nested desktop..."
+  env HOME="$real_home" XDG_CONFIG_HOME="$real_xdg_config" XDG_DATA_HOME="$real_xdg_data" \
+    XDG_STATE_HOME="$real_xdg_state" XDG_CACHE_HOME="$real_xdg_cache" \
+    TOUR_MODE=status TOUR_TITLE=$TOUR_TITLE TOUR_SCREEN=$orig_mon TOUR_STATUS=$status TOUR_ANSWER="$TMP/cancel.txt" \
     TOUR_NESTED=$($NESTED && echo 1 || echo 0) TOUR_SHIELD=${SHIELD:-0,0,0,0} \
     quickshell -n -p "$banner_qml" >/dev/null 2>&1 &
   banner_pid=$!
+  # The Cancel button writes to a file; this ends the run when it does (which puts everything back, see cleanup).
+  if $NESTED; then
+    ( while [[ ! -s $TMP/cancel.txt ]]; do sleep 0.3; done; kill -TERM $$ 2>/dev/null ) &
+    cancel_watch=$!
+  fi
   sleep 1
   # Putting the window up moves focus to the real screen; the app must open on the virtual one.
   $NESTED || hyprctl dispatch "hl.dsp.focus({ monitor = \"$MON\" })" >/dev/null
@@ -140,8 +156,17 @@ echo "tour: recording. Leave the mouse and keyboard alone until it says it is do
 read -r orig_cx orig_cy < <(hyprctl cursorpos -j | jq -r '"\(.x) \(.y)"')
 rec_pid=""
 bg_pid=""
-cleanup() {
+released=false
+cancelled=false
+cancel_watch=""
+# Gives you your screen, mouse and keyboard back: stops filming, ends the nested session or puts the real app and the
+# virtual monitor back. Done as soon as the filming stops, not after the GIF is built.
+release() {
+  $released && return
+  released=true
+  [[ -n $cancel_watch ]] && kill "$cancel_watch" 2>/dev/null
   [[ -n $rec_pid ]] && kill "$rec_pid" 2>/dev/null
+  rec_pid=""
   [[ -n $bg_pid ]] && kill "$bg_pid" 2>/dev/null
   if $NESTED; then
     # Only the sandbox was changed, and it is thrown away with the session: nothing of yours to put back.
@@ -156,13 +181,24 @@ cleanup() {
       sleep 7
     fi
   fi
-  # Green, "the tour is done", for a few seconds; then the window goes.
-  say "done"
-  notify-send -a "$TOUR_TITLE tour" -u normal -t 8000 "The $TOUR_TITLE tour is done" "You can use the mouse and keyboard again." 2>/dev/null
+}
+cleanup() {
+  release
+  if $cancelled; then
+    say cancelled "Cancelled"
+    notify-send -a "$TOUR_TITLE tour" -u normal -t 8000 "The $TOUR_TITLE tour was cancelled" "Nothing was kept. You can use the mouse and keyboard again." 2>/dev/null
+    echo "tour: cancelled, nothing was kept." >&2
+  else
+    # Green, "the tour is done", for a few seconds; then the window goes.
+    say "done"
+    notify-send -a "$TOUR_TITLE tour" -u normal -t 8000 "The $TOUR_TITLE tour is done" "You can use the mouse and keyboard again." 2>/dev/null
+  fi
   sleep 6
   [[ -n $banner_pid ]] && kill "$banner_pid" 2>/dev/null
 }
 trap cleanup EXIT
+# Ctrl+C, or the Cancel button: stop at once; the EXIT trap puts everything back.
+trap 'cancelled=true; exit 130' INT TERM
 
 magick -size "${W}x${H}" "xc:$TOUR_BG" "$TMP/bg.png"
 if $NESTED; then
@@ -266,9 +302,13 @@ cap() {
 (while :; do grim -c -t jpeg -q 90 -o "$CAPMON" "$TMP/frames/$(date +%s%N).jpg"; done) &
 rec_pid=$!
 sleep 0.6
+say "Starting the tour"
 tour_play
 kill "$rec_pid" 2>/dev/null; wait "$rec_pid" 2>/dev/null
 rec_pid=""
+# Filming is over: give the screen, mouse and keyboard back now, and say that the GIF is being built.
+release
+say encoding "Building the GIF..."
 
 # ---- the GIF ------------------------------------------------------------------------------------
 frames=$(ls "$TMP/frames"/*.jpg | sort)
