@@ -53,7 +53,7 @@ Prefer the terminal? `startappimage setup --launcher true --handler true --cli t
 
 ### Double-click to install
 
-<img src="screenshots/installed.png" alt="The install card for PdfCraft: icon, description, version, size, where it comes from and where it goes, with Uninstall, Run once, Reinstall and Open installed" width="520">
+<img src="screenshots/card.png" alt="The install card for PdfCraft: icon, description, version, size, where it comes from and where it goes, with Uninstall, Run once, Reinstall and Open installed" width="520">
 
 Opening an `.AppImage` from your file manager shows a small card instead of running it blindly: its icon, name, description, version and size, where the file comes from and where it will be kept.
 

@@ -68,5 +68,5 @@ shot() {
 "$DEV" close; "$DEV" settings "$APP"; sleep 2; shot app settings.png 790 730
 "$DEV" close
 nest "$HERE/bin/startappimage" open "$CARD_FILE" >/dev/null 2>&1
-sleep 3; shot card installed.png 550 327
+sleep 3; shot card card.png 550 327
 echo "Updated $OUT/{manager,settings-window,settings,installed}.png"
