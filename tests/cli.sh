@@ -253,6 +253,19 @@ t_set_of_an_unknown_app_fails() {
   cli set nothing --name X; refused "not installed: nothing"
 }
 
+# --- folder -------------------------------------------------------------------
+t_folder_accepts_a_path_inside_home_and_expands_it() {
+  # shellcheck disable=SC2088 # the CLI is what expands the tilde
+  cli folder '~/Tools/Apps/'; ok
+  eq "$(jqv '.ok')" true "ok"; eq "$(jqv '.path')" "$HOME/Tools/Apps" "path"
+}
+
+t_folder_refuses_a_path_outside_home() {
+  cli folder /opt/apps; ok
+  eq "$(jqv '.ok')" false "ok"; has "$(jqv '.error')" "inside your home" "error"
+  cli folder "$HOME"; eq "$(jqv '.ok')" false "home itself is not a folder to install into"
+}
+
 # --- remove -------------------------------------------------------------------
 t_remove_deletes_every_file_the_install_made() {
   install_demo
@@ -264,6 +277,13 @@ t_remove_deletes_every_file_the_install_made() {
   absent "$HOME/.local/share/icons/hicolor/256x256/apps/startappimage-demo-app.png"
   absent "$HOME/.local/share/startappimage/demo-app.env"
   cli list --json; eq "$(jqv 'length')" 0 "apps listed"
+}
+
+t_remove_json_confirms_and_names_a_failure() {
+  install_demo
+  cli remove demo-app --json; ok; eq "$(jqv '.ok')" true "ok"; eq "$(jqv '.id')" demo-app "id"
+  cli remove demo-app --json; [[ $CODE -ne 0 ]] || fail "expected a failure"
+  eq "$(jqv '.ok')" false "ok"; has "$(jqv '.error')" "not installed" "error"
 }
 
 t_remove_an_unknown_app_fails() {
@@ -330,6 +350,12 @@ t_window_starts_at_zero_and_remembers_what_it_is_told() {
   eq "$(jqv '.setup.w')" 500 "setup window is kept"
 }
 
+t_window_reads_as_unset_while_remembering_is_off() {
+  cli window --size 800x600 --offset 5,6 >/dev/null
+  printf 'REMEMBER_SIZE=false\nREMEMBER_POSITION=false\n' >>"$HOME/.config/startappimage/config"
+  cli window; eq "$(jqv '[.w,.h,.x,.y]|join(",")')" "0,0,0,0" "window"
+}
+
 t_window_refuses_a_bad_size() {
   cli window --size big; refused "WIDTHxHEIGHT"
 }
@@ -352,6 +378,11 @@ t_integration_carries_the_recommended_defaults() {
   eq "$(jqv '.defaults.handler')" true "default handler"
   eq "$(jqv '.defaults.cli')" true "default cli"
   eq "$(jqv '.defaults.barIcon')" false "default barIcon"
+}
+
+t_the_default_a_reset_applies_is_the_default_a_fresh_install_reads() {
+  cli integration
+  eq "$(jqv '.defaults.rememberPosition')" "$(jqv '.rememberPosition')" "rememberPosition"
 }
 
 t_a_setting_nobody_changed_reads_as_its_default() {
@@ -400,6 +431,13 @@ t_setup_links_the_command_line_and_leaves_a_stranger_alone() {
   printf '#!/bin/sh\n' >"$HOME/.local/bin/startappimage"
   cli setup --cli true; refused "already exists"
   exists "$HOME/.local/bin/startappimage"
+}
+
+t_setup_json_confirms_and_names_the_piece_that_failed() {
+  cli setup --check-hours 3 --json; ok; eq "$(jqv '.ok')" true "ok"
+  printf '#!/bin/sh\n' >"$HOME/.local/bin/startappimage" 2>/dev/null || { mkdir -p "$HOME/.local/bin"; printf '#!/bin/sh\n' >"$HOME/.local/bin/startappimage"; }
+  cli setup --cli true --json; [[ $CODE -ne 0 ]] || fail "expected a failure"
+  eq "$(jqv '.ok')" false "ok"; eq "$(jqv '.field')" cli "field"; has "$(jqv '.error')" "already exists" "error"
 }
 
 t_setup_rejects_an_unknown_option() {

@@ -178,7 +178,7 @@ Item {
     if (setupProc.running) return
     if (root.setupQueue.length === 0) { root.setupBusy = false; integProc.running = true; return }
     root.setupBusy = true
-    setupProc.command = [root.cli, "setup"].concat(root.setupQueue[0])
+    setupProc.command = [root.cli, "setup"].concat(root.setupQueue[0], ["--json"])
     root.setupQueue = root.setupQueue.slice(1)
     setupProc.running = true
   }
@@ -214,6 +214,16 @@ Item {
     root.resolveWanted = input.trim()
     if (root.resolveWanted === "") { root.resolved = ({}); root.resolveAsked = ""; return }
     if (!resolveProc.running) resolveProc.start()
+  }
+
+  // ---- a typed folder: the CLI says whether it is allowed -------------------------
+  property var folderResult: ({})
+  property string folderAsked: ""
+  property string folderWanted: ""
+  function checkFolder(input) {
+    root.folderWanted = input.trim()
+    if (root.folderWanted === "") { root.folderResult = ({}); root.folderAsked = ""; return }
+    if (!folderProc.running) folderProc.start()
   }
 
   // One app's settings go one at a time, in the order they were made; the window stays open and
@@ -259,7 +269,7 @@ Item {
   function uninstallFromCard() {
     root.installLog = ""
     root.installState = "removing"
-    removeProc.command = [root.cli, "remove", root.meta.id]
+    removeProc.command = [root.cli, "remove", root.meta.id, "--json"]
     removeProc.running = true
   }
 
@@ -350,7 +360,11 @@ Item {
   Process {
     id: setupProc
     property string last: ""
-    stderr: SplitParser { onRead: line => setupProc.last = line.replace(/^startappimage: /, "") }
+    // stdout is {ok} or {ok: false, field, error}; a failure the CLI could not put in JSON is a plain stderr line.
+    stdout: SplitParser {
+      onRead: line => { try { var r = JSON.parse(line); if (!r.ok) setupProc.last = r.error } catch (e) {} }
+    }
+    stderr: SplitParser { onRead: line => { if (setupProc.last === "") setupProc.last = line.replace(/^startappimage: /, "") } }
     onStarted: { setupProc.last = ""; console.log("startappimage setup:", JSON.stringify(setupProc.command)) }
     onExited: (code, status) => {
       console.log("startappimage setup exited", code, status, setupProc.last)
@@ -441,6 +455,20 @@ Item {
   }
 
   Process {
+    id: folderProc
+    property string asked: ""
+    function start() { asked = root.folderWanted; command = [root.cli, "folder", asked]; running = true }
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var r = ({})
+        try { r = JSON.parse(text) } catch (e) { r = ({ ok: true }) }  // unreadable: let `set` decide when it is applied
+        if (folderProc.asked === root.folderWanted) { root.folderResult = r; root.folderAsked = folderProc.asked }
+      }
+    }
+    onExited: if (root.folderWanted !== "" && root.folderWanted !== folderProc.asked) folderProc.start()
+  }
+
+  Process {
     id: setProc
     // stdout is {ok, id} or {ok: false, field, error}; field is the setting a failure belongs to, or empty.
     stdout: SplitParser {
@@ -501,7 +529,15 @@ Item {
 
   Process {
     id: removeProc
-    stdout: SplitParser { onRead: line => root.installLog += line + "\n" }
+    // stdout is {ok, id} or {ok: false, error}.
+    stdout: SplitParser {
+      onRead: line => {
+        try {
+          var r = JSON.parse(line)
+          root.installLog += (r.ok ? "Removed " + r.id : r.error) + "\n"
+        } catch (e) { root.installLog += line + "\n" }
+      }
+    }
     stderr: SplitParser { onRead: line => root.installLog += line + "\n" }
     onExited: code => {
       root.installState = code === 0 ? "removed" : "failed"

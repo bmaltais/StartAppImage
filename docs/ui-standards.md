@@ -192,3 +192,4 @@ Newest first. One line each: what was decided, and why.
 | 2026-10-15 | Scroll bar when the list overflows, same style as StartBar's | Long lists were cut off with no hint |
 | 2026-10-15 | A setting error is shown next to the setting the CLI names (`field`), and an app's source label comes from the CLI's `sourceKind` and `repo` | Matching the wording of an error, or the `github:` prefix, broke silently when a message changed |
 | 2026-10-15 | Defaults for Reset and "Enable recommended" come from the CLI's `integration` | The same defaults were written in the CLI, the service and the view |
+| 2026-10-15 | "Another folder" is checked as you type by the CLI (`startappimage folder`), not by a rule copied into the view | The home-folder rule lived in the CLI and the view and could drift |

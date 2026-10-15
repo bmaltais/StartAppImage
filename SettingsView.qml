@@ -74,9 +74,10 @@ SettingsWindow {
     var t = view.folderText.trim()
     if (t === "") return ""
     if (/^(https?:\/\/|github[:.])/i.test(t)) return "That looks like a link, not a folder. Paste it under Updates instead."
-    if (t === "~" || t.indexOf("~/") === 0 || t.indexOf(view.svc.home + "/") === 0) return ""
-    return "The folder must be inside your home directory."
+    // Whether it is inside the home folder is the CLI's rule: wait for its answer to this text.
+    return view.svc.folderAsked === t && view.svc.folderResult.ok === false ? view.svc.folderResult.error : ""
   }
+  Timer { id: folderTimer; interval: 300; onTriggered: view.svc.checkFolder(view.folderText) }
 
   // What the last change said when it failed, next to the setting it was about.
   readonly property string saveError: view.svc.settingsError
@@ -133,7 +134,7 @@ SettingsWindow {
 
   onEdited: function (key, text) {
     if (key === "source") { view.sourceText = text; resolveTimer.restart() }
-    else if (key === "folder") view.folderText = text
+    else if (key === "folder") { view.folderText = text; folderTimer.restart() }
   }
 
   onChanged: function (key, value) {
