@@ -137,7 +137,7 @@ Plugins run unsandboxed, so here is what this one does.
 - **Reading an AppImage runs it.** To show the name and icon, the file is run once with `--appimage-extract`, which unpacks a few files. Only open AppImages you trust, as you would before running them.
 - **Downloads** use `curl` over the address you give. Updates from GitHub are not checked against a published digest, so only add update sources you trust.
 - **Files** are only created, moved or deleted inside your home folder. Install and move folders outside it are refused, and so is deleting anything that is not an `.AppImage`.
-- **Nothing is installed system-wide.** There is no `sudo` and no background service of its own: updates are checked by a timer inside the shell.
+- **Nothing is installed system-wide.** It needs no administrator rights and runs no background service of its own: updates are checked by a timer inside the shell.
 
 ## Update and remove
 
