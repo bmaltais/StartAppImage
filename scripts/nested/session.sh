@@ -26,8 +26,14 @@ NMON=""
 NW=0
 NH=0
 VPTR=$NEST_BIN/vptr
-# Where the nested window goes on the real monitor: centred, below a strip for the status window.
-NEST_TOP=190
+# The status strip (scripts/tour-banner.qml) sits NEST_STRIP_GAP pixels from the top of the monitor and is NEST_STRIP_H high;
+# the nested window goes below it, clear of the strip and of its own title bar (NEST_TITLEBAR, which Hyprland draws above
+# the window's position). They are worked out from these, never typed twice, so they cannot drift apart.
+NEST_STRIP_GAP=24
+NEST_STRIP_H=170
+NEST_TITLEBAR=30
+NEST_BELOW=10
+NEST_TOP=$((NEST_STRIP_GAP + NEST_STRIP_H + NEST_BELOW + NEST_TITLEBAR))
 
 real() { env HYPRLAND_INSTANCE_SIGNATURE="$REAL_SIG" WAYLAND_DISPLAY="$REAL_WD" "$@"; }
 
@@ -142,7 +148,11 @@ CONF
 # Size and place the window, and hand the real keyboard back to what had it.
 nested_place() { # PREVIOUS_FOCUS_ADDRESS
   local mx my mw
-  read -r mx my mw < <(real hyprctl monitors -j | jq -r --arg m "$orig_mon" '.[] | select(.name == $m) | "\(.x) \(.y) \(.width)"')
+  local mh
+  read -r mx my mw mh < <(real hyprctl monitors -j | jq -r --arg m "$orig_mon" '.[] | select(.name == $m) | "\(.x) \(.y) \(.width) \(.height)"')
+  if (( mh < NEST_TOP + H + 8 )); then
+    echo "tour: the monitor is ${mh}px high; the nested window (${H}px) plus its status strip needs $((NEST_TOP + H + 8))px. They will overlap by $((NEST_TOP + H + 8 - mh))px at the bottom." >&2
+  fi
   real hyprctl dispatch "hl.dsp.window.resize({ x = $W, y = $H, exact = true, window = \"address:$NEST_ADDR\" })" >/dev/null
   real hyprctl dispatch "hl.dsp.window.move({ x = $((mx + (mw - W) / 2)), y = $((my + NEST_TOP)), exact = true, window = \"address:$NEST_ADDR\" })" >/dev/null
   SHIELD="$(((mw - W) / 2)),$NEST_TOP,$W,$H"

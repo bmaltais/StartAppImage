@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# StartAppImage's tour: the GIF at the top of the README (screenshots/hero.gif).
+# StartAppImage's tour: the animation at the top of the README (screenshots/hero.avif).
 # Run it with scripts/tour.sh scripts/tours/hero.sh --install (or scripts/hero.sh --install).
 #
 # The story: double-click an AppImage and see what it is; the manager with an update waiting; one click
@@ -13,7 +13,7 @@
 # Needs the apps it uses installed in StartAppImage: ArtCraft Launcher (with a GitHub source) and PdfCraft.
 
 TOUR_TITLE=StartAppImage
-TOUR_OUT=screenshots/hero.gif
+TOUR_OUT=screenshots/hero.avif
 TOUR_LAYER=omarchy-startappimage
 TOUR_STEPS=6
 TOUR_RESTART_SHELL=1            # virtual monitor mode: the shell reads the reset window sizes at start

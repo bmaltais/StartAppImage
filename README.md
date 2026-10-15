@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="A tour of StartAppImage: the install card for a double-clicked AppImage, the manager with an update waiting and one click to update it, pointing an app at its GitHub releases with a live check of the link, settings that apply as you change them, and resizing and moving the window" src="screenshots/hero.gif" width="900" />
+  <img alt="A tour of StartAppImage: the install card for a double-clicked AppImage, the manager with an update waiting and one click to update it, pointing an app at its GitHub releases with a live check of the link, settings that apply as you change them, and resizing and moving the window" src="screenshots/hero.avif" width="900" />
 </p>
 
 <h1 align="center">StartAppImage</h1>
