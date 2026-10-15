@@ -31,6 +31,8 @@ Item {
 
   function move(dy) { view.cursor = Math.max(0, Math.min(view.rows.length - 1, view.cursor + dy)) }
 
+  function focusSearch() { search.forceActiveFocus() }
+
   function currentRow() { return list.itemAtIndex(Math.min(view.cursor, Math.max(0, view.rows.length - 1))) }
 
   onVisibleChanged: {

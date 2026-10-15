@@ -26,7 +26,9 @@ Item {
 
   // ---- what the window shows ----------------------------------------------
   property bool shown: false
-  property string view: "manager"            // "manager" | "install" | "settings" | "setup"
+  property string view: "manager"            // "manager" | "install" | "settings"
+  // The settings window floats over the manager rather than replacing it.
+  property bool setupOpen: false
   property var targetScreen: null
 
   // The window is only mapped once what it shows has loaded, so it never flashes
@@ -35,7 +37,6 @@ Item {
   property bool slow: false
   readonly property bool ready: root.slow || (root.view === "manager" ? root.listLoaded
     : root.view === "install" ? (root.installState !== "loading" && root.locationsReady)
-    : root.view === "setup" ? root.integLoaded
     : (root.settingsState !== "loading" && root.locationsReady))
   onShownChanged: {
     root.slow = false
@@ -101,6 +102,7 @@ Item {
   }
 
   function showManager() {
+    root.setupOpen = false
     root.view = "manager"
     root.targetScreen = root.focusedScreen()
     root.shown = true
@@ -127,6 +129,7 @@ Item {
     root.installLog = ""
     root.installedId = ""
     root.installState = "loading"
+    root.setupOpen = false
     root.view = "install"
     root.targetScreen = root.focusedScreen()
     root.shown = true
@@ -134,19 +137,25 @@ Item {
     infoProc.running = true
   }
 
-  function close() { root.shown = false }
+  function close() { root.setupOpen = false; root.shown = false }
+  function closeSetup() { root.setupOpen = false; Qt.callLater(function () { managerView.focusSearch() }) }
 
   function showSetup() {
     root.integLoaded = false
-    root.view = "setup"
-    root.targetScreen = root.focusedScreen()
-    root.shown = true
+    // The manager stays behind it: opened first when it was not already showing.
+    if (!root.shown || root.view !== "manager") {
+      root.view = "manager"
+      root.targetScreen = root.focusedScreen()
+      root.shown = true
+      root.refresh()
+    }
+    root.setupOpen = true
     integProc.running = true
   }
 
   function skipSetup() {
     skipProc.running = true
-    root.close()
+    root.closeSetup()
   }
 
   // Setup changes go one at a time, in the order they were made; the settings window
@@ -170,6 +179,7 @@ Item {
     root.cfg = ({})
     root.settingsError = ""
     root.settingsState = "loading"
+    root.setupOpen = false
     root.view = "settings"
     locProc.running = true
     cfgProc.command = [root.cli, "config", app.id]
@@ -577,7 +587,7 @@ Item {
     Rectangle {
       anchors.fill: parent
       color: Color.menu.scrim
-      MouseArea { anchors.fill: parent; onClicked: root.close() }
+      MouseArea { anchors.fill: parent; onClicked: { if (root.setupOpen) root.closeSetup(); else root.close() } }
     }
 
     RectangularShadow {
@@ -593,10 +603,8 @@ Item {
       anchors.centerIn: parent
       anchors.horizontalCenterOffset: win.dragX
       anchors.verticalCenterOffset: win.dragY
-      width: root.view === "manager" ? (win.sizeW > 0 ? win.sizeW : Style.space(640))
-        : root.view === "setup" ? Style.space(760) : Style.space(520)
+      width: root.view === "manager" ? (win.sizeW > 0 ? win.sizeW : Style.space(640)) : Style.space(520)
       height: root.view === "install" ? installView.implicitHeight
-        : root.view === "setup" ? Math.min(setupView.implicitHeight, (win.screen ? win.screen.height : 900) - Style.space(80))
         : root.view === "settings" ? settingsView.implicitHeight
         : win.sizeH > 0 ? win.sizeH
         : Math.max(Style.space(300), Math.min(managerView.implicitHeight, Style.space(580), (win.screen ? win.screen.height : 900) - Style.space(80)))
@@ -649,13 +657,6 @@ Item {
         anchors.right: parent.right
         svc: root
         visible: root.view === "settings"
-      }
-
-      SetupView {
-        id: setupView
-        anchors.fill: parent
-        svc: root
-        visible: root.view === "setup"
       }
 
       // Resize handle in the manager's bottom-right corner: a small grip and a resize pointer.
@@ -712,6 +713,60 @@ Item {
           if (/\.appimage$/i.test(path)) root.showInstall(path)
           else root.say("Only .AppImage files can be installed", true)
         }
+      }
+    }
+
+    // ---- the settings window, over the manager ------------------------------------------
+    // The manager stays where it is, dimmed; closing the settings brings it back.
+    Rectangle {
+      visible: root.setupOpen && root.integLoaded
+      anchors.fill: frame
+      radius: frame.radius
+      color: Qt.rgba(0, 0, 0, 0.35)
+      MouseArea { anchors.fill: parent; onClicked: root.closeSetup() }
+    }
+
+    RectangularShadow {
+      visible: setupFrame.visible
+      anchors.fill: setupFrame
+      radius: setupFrame.radius
+      blur: root.shadow
+      offset.y: Style.space(4)
+      color: Qt.rgba(0, 0, 0, 0.6)
+    }
+
+    Rectangle {
+      id: setupFrame
+      visible: root.setupOpen && root.integLoaded
+      anchors.centerIn: parent
+      width: Style.space(760)
+      height: Math.min(setupView.implicitHeight, (win.screen ? win.screen.height : 900) - Style.space(80))
+      radius: root.radius
+      color: Color.menu.background
+      border.width: Style.normalBorderWidth
+      border.color: Util.alpha(Color.foreground, 0.14)
+      focus: true
+      Keys.onEscapePressed: root.closeSetup()
+      onVisibleChanged: if (visible) setupFrame.forceActiveFocus()
+
+      // Swallow clicks so they do not reach the dismiss area behind the card.
+      MouseArea { anchors.fill: parent }
+
+      SetupView {
+        id: setupView
+        anchors.fill: parent
+        svc: root
+      }
+
+      Button {
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: Style.spacing.lg
+        anchors.rightMargin: Style.spacing.lg
+        z: 10
+        iconText: "\uF00D"
+        tooltipText: "Close"
+        onClicked: root.closeSetup()
       }
     }
   }
