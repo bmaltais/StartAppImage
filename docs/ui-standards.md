@@ -148,7 +148,7 @@ A change is not done until it has been seen working.
 3. Open the window (`omarchy-shell io.github.bmaltais.startappimage open` or `setup`; both toggle or show) and take a screenshot with `grim`.
 4. Click the real controls with `ydotool` and screenshot again. On a monitor that does not start at x = 0, `ydotool mousemove --absolute` lands at twice the coordinate you give plus the monitor's origin, so check with `hyprctl cursorpos`. Screenshot before each click: a click outside a card closes it.
 5. Read the shell log for QML errors: `journalctl --user --since -1min -o cat`.
-6. Retake the README screenshots with `scripts/screenshots.sh` when the look changes.
+6. Retake the README screenshots with `scripts/screenshots.sh` when the look changes, then rebuild `preview.png` (the 1600 by 900 title image) with `scripts/preview.sh`. Both put a plain backdrop behind the cards. Set the manager to about 690 by 696 first (`startappimage window --size 690x696 --offset 0,0`, then restart the shell) so the hero shows every app without a cut-off row, and restore your own window values afterwards.
 
 ## Shared UI code
 

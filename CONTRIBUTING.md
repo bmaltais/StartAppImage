@@ -15,7 +15,7 @@
 | `Chip.qml`, `Field.qml` | A selectable choice and a text field |
 | `bin/startappimage` | The command line: install, list, update, remove, settings. It is the only part that touches files |
 | `assets/` | The launcher icon |
-| `screenshots/` | Images used by the README; retake them with `scripts/screenshots.sh` |
+| `screenshots/`, `preview.png` | Images used by the README and the plugin preview; retake them with `scripts/screenshots.sh`, then `scripts/preview.sh` |
 | `docs/ui-standards.md` | How the UI looks and behaves, and why. Read it before changing the UI, and update it when a design decision changes |
 
 The QML never edits files itself: it asks `bin/startappimage` and reads its JSON (`list --json`, `info`, `config`, `locations`, `integration`, `check --json`).
