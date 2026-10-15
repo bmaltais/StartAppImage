@@ -33,6 +33,10 @@
 #     TOUR_STEPS         how many steps (calls to `cap`) it has, for "Step 2 of 6"   (optional)
 #     TOUR_SIZE          the virtual monitor, WxH           (default 1280x800)
 #     TOUR_BG            the backdrop colour                (default #262a36)
+#     TOUR_REAL_UNCHANGED  with --nested: paths under your real $HOME (files or folders) that the tour must not touch. They are
+#                        fingerprinted (name, size, modification time) before and after, and the run fails, keeping nothing, if
+#                        any changed. e.g. (.config/omarchy/shell.json .local/share/myapp)
+#     TOUR_MAX_SECONDS   stop a tour that runs longer than this, as a stuck step would (default 300)
 #     TOUR_RESTART_SHELL 1 to restart the Omarchy shell after tour_prepare and again at the end, for tours
 #                        whose changes the shell only reads at start     (default 0)
 #     TOUR_FONT          the caption font file              (default JetBrains Mono Nerd Font Bold)
@@ -79,6 +83,9 @@ source "$tourfile"
 : "${TOUR_BG:=#262a36}"
 : "${TOUR_LAYER:=}"
 : "${TOUR_RESTART_SHELL:=0}"
+: "${TOUR_MAX_SECONDS:=300}"
+declare -p TOUR_REAL_UNCHANGED >/dev/null 2>&1 || TOUR_REAL_UNCHANGED=()
+REAL_HOME=$HOME   # before --nested swaps HOME for the sandbox's
 : "${TOUR_FONT:=/usr/share/fonts/TTF/JetBrainsMonoNerdFont-Bold.ttf}"
 declare -F tour_play >/dev/null || { echo "tour: the tour file must define tour_play" >&2; exit 2; }
 
@@ -132,11 +139,13 @@ real_xdg_data=${XDG_DATA_HOME:-$HOME/.local/share}
 real_xdg_state=${XDG_STATE_HOME:-$HOME/.local/state}
 real_xdg_cache=${XDG_CACHE_HOME:-$HOME/.cache}
 start_banner() {
+  local nested_flag=0
+  $NESTED && nested_flag=1
   say starting "Starting the nested desktop..."
   env HOME="$real_home" XDG_CONFIG_HOME="$real_xdg_config" XDG_DATA_HOME="$real_xdg_data" \
     XDG_STATE_HOME="$real_xdg_state" XDG_CACHE_HOME="$real_xdg_cache" \
     TOUR_MODE=status TOUR_TITLE=$TOUR_TITLE TOUR_SCREEN=$orig_mon TOUR_STATUS=$status TOUR_ANSWER="$TMP/cancel.txt" \
-    TOUR_NESTED=$($NESTED && echo 1 || echo 0) TOUR_SHIELD=${SHIELD:-0,0,0,0} \
+    TOUR_NESTED=$nested_flag \
     TOUR_STRIP_GAP=${NEST_STRIP_GAP:-24} TOUR_STRIP_H=${NEST_STRIP_H:-170} \
     quickshell -n -p "$banner_qml" >/dev/null 2>&1 &
   banner_pid=$!
@@ -154,19 +163,44 @@ if $ask; then
 fi
 echo "tour: recording. Leave the mouse and keyboard alone until it says it is done." >&2
 
+# ---- proving a nested tour touched nothing of yours ----------------------------------------------------
+# A fingerprint of each TOUR_REAL_UNCHANGED path: file name, size and modification time. Taken before the sandbox exists and
+# again once the nested session is gone; any difference is named and fails the run.
+real_listing() {
+  local p
+  for p in "${TOUR_REAL_UNCHANGED[@]}"; do
+    find "$REAL_HOME/$p" -type f -printf '%p %s %T@\n' 2>/dev/null
+  done | sort
+}
+verify_real() {
+  $NESTED && ((${#TOUR_REAL_UNCHANGED[@]} > 0)) || return 0
+  real_listing >"$TMP/real.after"
+  if cmp -s "$TMP/real.before" "$TMP/real.after"; then
+    echo "tour: your real files are unchanged ($(wc -l <"$TMP/real.after") checked)" >&2
+  else
+    echo "tour: FAILED, the tour changed files of yours (TOUR_REAL_UNCHANGED):" >&2
+    diff "$TMP/real.before" "$TMP/real.after" | grep '^[<>]' | cut -c1-200 | head -10 | sed 's/^/        /' >&2
+    abort_reason="it changed files of yours that it must not touch; nothing was kept"
+    exit 1
+  fi
+}
+if $NESTED && ((${#TOUR_REAL_UNCHANGED[@]} > 0)); then real_listing >"$TMP/real.before"; fi
+
 # ---- putting everything back --------------------------------------------------------------------
 read -r orig_cx orig_cy < <(hyprctl cursorpos -j | jq -r '"\(.x) \(.y)"')
 rec_pid=""
 bg_pid=""
 released=false
-cancelled=false
+abort_reason=""
 cancel_watch=""
+watchdog=""
 # Gives you your screen, mouse and keyboard back: stops filming, ends the nested session or puts the real app and the
 # virtual monitor back. Done as soon as the filming stops, not after the GIF is built.
 release() {
   $released && return
   released=true
   [[ -n $cancel_watch ]] && kill "$cancel_watch" 2>/dev/null
+  [[ -n $watchdog ]] && kill "$watchdog" 2>/dev/null
   [[ -n $rec_pid ]] && kill "$rec_pid" 2>/dev/null
   rec_pid=""
   [[ -n $bg_pid ]] && kill "$bg_pid" 2>/dev/null
@@ -186,10 +220,10 @@ release() {
 }
 cleanup() {
   release
-  if $cancelled; then
-    say cancelled "Cancelled"
-    notify-send -a "$TOUR_TITLE tour" -u normal -t 8000 "The $TOUR_TITLE tour was cancelled" "Nothing was kept. You can use the mouse and keyboard again." 2>/dev/null
-    echo "tour: cancelled, nothing was kept." >&2
+  if [[ -n $abort_reason ]]; then
+    say cancelled "Stopped"
+    notify-send -a "$TOUR_TITLE tour" -u normal -t 8000 "The $TOUR_TITLE tour was stopped" "$abort_reason. You can use the mouse and keyboard again." 2>/dev/null
+    echo "tour: stopped, $abort_reason." >&2
   else
     # Green, "the tour is done", for a few seconds; then the window goes.
     say "done"
@@ -200,7 +234,9 @@ cleanup() {
 }
 trap cleanup EXIT
 # Ctrl+C, or the Cancel button: stop at once; the EXIT trap puts everything back.
-trap 'cancelled=true; exit 130' INT TERM
+trap 'abort_reason="cancelled (the Cancel button or Ctrl+C); nothing was kept"; exit 130' INT TERM
+# The watchdog's signal: a tour that runs past TOUR_MAX_SECONDS is stuck (a step waiting for something that never comes).
+trap 'abort_reason="it ran past TOUR_MAX_SECONDS (${TOUR_MAX_SECONDS}s); nothing was kept"; exit 124' USR1
 
 magick -size "${W}x${H}" "xc:$TOUR_BG" "$TMP/bg.png"
 if $NESTED; then
@@ -459,13 +495,16 @@ cap() {
 rec_pid=$!
 sleep 0.6
 say "Starting the tour"
+( sleep "$TOUR_MAX_SECONDS"; kill -USR1 $$ 2>/dev/null ) &
+watchdog=$!
 tour_play
 hold_wait
 kill "$rec_pid" 2>/dev/null; wait "$rec_pid" 2>/dev/null
 rec_pid=""
 # Filming is over: give the screen, mouse and keyboard back now, and say that the GIF is being built.
 release
-say encoding "Building the GIF..."
+verify_real
+say encoding "Building the result..."
 
 # ---- the GIF ------------------------------------------------------------------------------------
 frames=$(ls "$TMP/frames"/*.jpg | sort)

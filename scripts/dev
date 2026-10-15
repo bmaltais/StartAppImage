@@ -1,0 +1,246 @@
+#!/usr/bin/env bash
+# dev: test the plugin in a nested Omarchy desktop that your mouse and keyboard cannot reach.
+#
+#   scripts/dev up                      start the session: a second Hyprland and Omarchy shell, this checkout as the plugin
+#   scripts/dev reload                  restart that shell so it loads the checkout's current files (uncommitted changes too)
+#   scripts/dev open | setup | settings APP_ID | close      open or close a window of the plugin there
+#   scripts/dev click PX PY             click at pixel PX,PY of a screenshot of the session
+#   scripts/dev type TEXT               type into the window that has the keyboard
+#   scripts/dev key NAME                press a key: Escape, Return, BackSpace, Tab, ...
+#   scripts/dev shot [FILE]             screenshot the session (path printed)
+#   scripts/dev watch | unwatch         open / close a view-only window on your screen showing the session live
+#   scripts/dev errors                  what the plugin logged there, with the shell's usual noise removed
+#   scripts/dev status | down           is it up / end it
+#
+# Where it lives. `up` puts the session's window on a virtual monitor of its own, placed 20,000 px to the right where a real
+# pointer cannot go (sliding a mouse off the edge of the screen stops at the edge). Nothing is drawn over your desktop, your
+# mouse and keyboard cannot touch it, and nothing of yours is read or written: the session has a home of its own with copies of
+# the app's data. Every click and key goes to the session's own Wayland socket (a virtual pointer and keyboard), the plugin
+# there is linked to this checkout so `reload` needs no commit or push, and your real shell is never restarted. Its bar says
+# "TEST SESSION" (the window's own title is fixed by the nested compositor, "aquamarine - WAYLAND-N").
+#
+# Watching it: `watch` opens a view-only window (scripts/dev-view.qml) that shows the session five times a second. It is an ordinary
+# window of its own, so your pointer is the normal arrow over it and you can drag, cover or resize it. The session's own window is
+# never put on your screen: while your pointer is over a nested compositor's window, that compositor chooses the cursor image
+# (hidden, a hand, a block), and moving or dropping it left a real pointer behaving oddly. Or just take a `dev shot`.
+# `scripts/reload` is for the times you want to see something on your real shell.
+#
+# The session closes by itself after DEV_TTL seconds (default 1800), and a window closed by hand is cleaned up by the next `up`.
+# Pixels are those of the session's screen, 1280x800, 0,0 at the top-left: take a `dev shot`, read the pixel off it, click.
+# Every command prints one line, and exits non-zero when it did not do what it says.
+set -euo pipefail
+
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO=$(cd "$HERE/.." && pwd)
+SELF=$HERE/dev
+DEV=${XDG_RUNTIME_DIR:-/run/user/$UID}/startappimage-dev
+STATE=$DEV/state
+TTL=${DEV_TTL:-1800}
+FAR_MON=DEVTEST
+FAR_X=20000
+
+# What session.sh needs from its caller (the recorder sets the same names).
+TMP=$DEV
+W=1280
+H=800
+TOUR_PLUGIN_ID=io.github.bmaltais.startappimage
+TOUR_SANDBOX_COPY=(.local/share/startappimage .local/share/applications)
+TOUR_SANDBOX_LINK=(.local/share/icons)
+REAL_HOME=$HOME                             # session.sh swaps HOME for the sandbox; the view window needs the real one
+NEST_LABEL="TEST SESSION: scripts/dev"      # shown on the nested bar (session.sh adds it)
+orig_mon=$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused) | .name' || true)
+gx=0; gy=0
+# shellcheck source=nested/session.sh
+source "$HERE/nested/session.sh"
+ID=io.github.bmaltais.startappimage
+
+die() { echo "dev: $*" >&2; exit 1; }
+usage() { sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'; }
+
+# The session's own environment, for running the shell's commands inside it.
+nenv() { env HOME="$NEST_HOME" XDG_CONFIG_HOME="$NEST_HOME/.config" XDG_DATA_HOME="$NEST_HOME/.local/share" \
+  XDG_STATE_HOME="$NEST_HOME/.local/state" XDG_CACHE_HOME="$NEST_HOME/.cache" \
+  WAYLAND_DISPLAY="$NWD" HYPRLAND_INSTANCE_SIGNATURE="$NSIG" "$@"; }
+nested_alive() { HYPRLAND_INSTANCE_SIGNATURE=$NSIG hyprctl monitors -j >/dev/null 2>&1; }
+load() { [[ -s $STATE ]] || die "no session: run scripts/dev up"; source "$STATE"; nested_alive || die "the session is gone: run scripts/dev up"; }
+overlay_up() { HYPRLAND_INSTANCE_SIGNATURE=$NSIG hyprctl layers -j | jq -e '[.. | .namespace? // empty] | any(. == "omarchy-startappimage")' >/dev/null 2>&1; }
+shell_up() { [[ $(nenv omarchy-shell shell ping 2>/dev/null) == ok ]]; }
+wait_shell() { local i; for i in $(seq 1 60); do shell_up && return 0; sleep 0.5; done; return 1; }
+
+# Processes that carry a given variable=value in their environment.
+procs_with() { local p; for p in /proc/[0-9]*; do p=${p#/proc/}; [[ $p != "$$" && -r /proc/$p/environ ]] || continue
+  tr '\0' '\n' </proc/"$p"/environ 2>/dev/null | grep -qx "$1" && echo "$p"; done 2>/dev/null || true; }
+
+noise='recursive rearrange|Local plugin changed|qt\.svg|IpcHandler|ShellIpc|Handler was registered|qmlscanner|DEBUG|atspi|portal'
+plugin_errors() { # prints the plugin's logged errors, one per line
+  [[ -f $NEST/qs.log ]] || return 0
+  sed 's/\x1b\[[0-9;]*m//g' "$NEST/qs.log" |
+    grep -E "io\.github\.bmaltais\.startappimage" |
+    grep -E "WARN|ERROR|ReferenceError|TypeError|Unable to assign|Cannot (assign|read|call)|is not a type|is not defined|failed|Read of" |
+    grep -vE "$noise" | sort -u || true
+}
+
+# The window goes to the far virtual monitor, out of a real pointer's reach, at the session's own size.
+send_window_away() {
+  real hyprctl dispatch "hl.dsp.window.resize({ x = $W, y = $H, exact = true, window = \"address:$NEST_ADDR\" })" >/dev/null
+  real hyprctl dispatch "hl.dsp.window.move({ monitor = \"$FAR_MON\", window = \"address:$NEST_ADDR\" })" >/dev/null
+  real hyprctl dispatch "hl.dsp.window.move({ x = $FAR_X, y = 0, exact = true, window = \"address:$NEST_ADDR\" })" >/dev/null
+  # The taskbar lists this window, and a click there asks the compositor to focus it, which moves the pointer onto a monitor nobody can
+  # reach: the pointer disappears. A window that refuses focus cannot be clicked to there.
+  real hyprctl dispatch "hl.dsp.window.set_prop({ prop = \"no_focus\", value = \"1\", window = \"address:$NEST_ADDR\" })" >/dev/null
+  real hyprctl dispatch "hl.dsp.window.set_prop({ prop = \"no_follow_mouse\", value = \"1\", window = \"address:$NEST_ADDR\" })" >/dev/null
+}
+
+cmd_up() {
+  if [[ -s $STATE ]]; then
+    if source "$STATE" && nested_alive; then echo "dev up: already running ($NSIG), scripts/dev down to end it"; return 0; fi
+    cmd_down >/dev/null   # a window closed by hand leaves the rest of the session behind
+  fi
+  nested_requires || exit 1
+  [[ -n $orig_mon ]] || die "no focused monitor: run it from inside your Hyprland session"
+  rm -rf "$DEV"; mkdir -p "$DEV"
+  local prev_focus
+  prev_focus=$(hyprctl activewindow -j | jq -r '.address // empty')
+  # The far monitor first, so the window can be sent there the moment it exists.
+  hyprctl output create headless "$FAR_MON" >/dev/null
+  hyprctl eval "hl.monitor({ output = \"$FAR_MON\", mode = \"${W}x${H}@60\", position = \"${FAR_X}x0\", scale = 1 })" >/dev/null
+  sleep 0.8
+  sandbox_build || exit 1
+  sandbox_enter
+  NEST_DETACH=1 nested_start || exit 1
+  send_window_away
+  [[ -n $prev_focus ]] && real hyprctl dispatch "hl.dsp.focus({ window = \"address:$prev_focus\" })" >/dev/null
+  nested_wait_ready
+  # Ends the session when its close file appears, or after DEV_TTL seconds: it must not be left running.
+  setsid -f env DEV_WATCHER=1 bash -c 'for ((i = 0; i < $3 * 2; i++)); do [[ -s $1 ]] && break; sleep 0.5; done; exec "$2" down >/dev/null 2>&1' _ "$DEV/close" "$SELF" "$TTL"
+  { printf 'NSIG=%q\nNWD=%q\nNMON=%q\nNW=%q\nNH=%q\nNEST_ADDR=%q\n' "$NSIG" "$NWD" "$NMON" "$NW" "$NH" "$NEST_ADDR"; } >"$STATE"
+  echo "dev up: session $NWD ${NW}x${NH} out of reach of your mouse and keyboard (look with dev shot), closes in ${TTL}s; plugin errors so far: $(plugin_errors | wc -l)"
+}
+
+cmd_watch() {
+  load
+  [[ -z $(procs_with "DEV_VIEW=1") ]] || { echo "dev watch: already open (dev unwatch closes it)"; return 0; }
+  local frame=$DEV/frame.jpg
+  WAYLAND_DISPLAY=$NWD grim -t jpeg -q 75 "$frame" || die "grim could not capture the session"
+  # Five pictures a second, written to a temporary name and renamed so the window never reads half a file; it ends with the session.
+  setsid -f env DEV_VIEW=1 bash -c 'while [[ -s $2 ]]; do WAYLAND_DISPLAY=$1 grim -t jpeg -q 75 "$3.new" 2>/dev/null && mv -f "$3.new" "$3"; sleep 0.2; done' _ "$NWD" "$STATE" "$frame"
+  setsid -f env DEV_VIEW=1 DEV_FRAME="$frame" HOME="$REAL_HOME" XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$REAL_HOME/.config}" \
+    WAYLAND_DISPLAY="$REAL_WD" HYPRLAND_INSTANCE_SIGNATURE="$REAL_SIG" quickshell -n -p "$HERE/dev-view.qml" >/dev/null 2>&1
+  # It opens on the focused monitor, which is not necessarily yours (the session's virtual monitor can hold focus): put it on yours.
+  local addr="" i ws mx my mw mh
+  for i in $(seq 1 20); do
+    addr=$(real hyprctl clients -j | jq -r '[.[] | select(.title | test("view only"))][0].address // empty')
+    [[ -n $addr ]] && break
+    sleep 0.25
+  done
+  [[ -n $addr ]] || die "the view window did not open"
+  read -r ws mx my mw mh < <(real hyprctl monitors -j | jq -r --arg far "$FAR_MON" '[.[] | select(.name != $far)] | (map(select(.focused))[0] // .[0]) | "\(.activeWorkspace.id) \(.x) \(.y) \(.width) \(.height)"')
+  real hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = false, window = \"address:$addr\" })" >/dev/null
+  real hyprctl dispatch "hl.dsp.window.resize({ x = 960, y = 600, exact = true, window = \"address:$addr\" })" >/dev/null
+  real hyprctl dispatch "hl.dsp.window.move({ x = $((mx + (mw - 960) / 2)), y = $((my + (mh - 600) / 2)), exact = true, window = \"address:$addr\" })" >/dev/null
+  real hyprctl dispatch "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"address:$addr\" })" >/dev/null
+  echo "dev watch: view window open on your screen (view only; dev unwatch closes it)"
+}
+
+cmd_unwatch() {
+  local p
+  for p in $(procs_with "DEV_VIEW=1"); do kill "$p" 2>/dev/null || true; done
+  echo "dev unwatch: view window closed"
+}
+
+cmd_down() {
+  [[ -s $STATE ]] || { hyprctl output remove "$FAR_MON" >/dev/null 2>&1 || true; echo "dev down: no session"; return 0; }
+  source "$STATE"
+  nest_pid=detached
+  for p in $(procs_with "DEV_VIEW=1"); do kill "$p" 2>/dev/null || true; done
+  nested_stop
+  hyprctl output remove "$FAR_MON" >/dev/null 2>&1 || true
+  rm -rf "$DEV"
+  echo "dev down: session ended"
+}
+
+cmd_status() {
+  [[ -s $STATE ]] || { echo "dev status: down"; return 1; }
+  source "$STATE"
+  nested_alive || { echo "dev status: the session is gone (scripts/dev up)"; return 1; }
+  echo "dev status: up $NWD ${NW}x${NH} out-of-reach, shell $(shell_up && echo answering || echo NOT-ANSWERING), window $(overlay_up && echo open || echo closed), plugin errors $(plugin_errors | wc -l)"
+}
+
+cmd_reload() {
+  load
+  local p env_file started took n
+  p=$(procs_with "XDG_CONFIG_HOME=$NEST_HOME/.config" | while read -r q; do [[ $(cat /proc/$q/comm 2>/dev/null) == quickshell ]] && echo "$q"; done | head -n1 || true)
+  [[ -n $p ]] || die "the session's shell is not running"
+  mapfile -d '' env_file </proc/"$p"/environ
+  : >"$NEST/qs.log"
+  started=$(date +%s.%N)
+  kill "$p" 2>/dev/null || true
+  sleep 1
+  setsid -f env -i "${env_file[@]}" QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 NEST_QS_LOG="$NEST/qs.log" \
+    sh -c 'exec quickshell -n -p "${OMARCHY_PATH:-/usr/share/omarchy}/shell" >> "$NEST_QS_LOG" 2>&1'
+  wait_shell || die "the session's shell did not answer after the restart"
+  sleep 2
+  took=$(awk -v a="$started" -v b="$(date +%s.%N)" 'BEGIN { printf "%.1f", b - a }')
+  n=$(plugin_errors | wc -l)
+  echo "dev reload $([[ $n -eq 0 ]] && echo ok || echo FAILED) shell restarted in ${took}s (your real shell untouched) qml-errors $n"
+  plugin_errors | head -8 | cut -c1-220 | sed 's/^/  err: /'
+  [[ $n -eq 0 ]]
+}
+
+cmd_window() { # open | setup | settings ID | close
+  load
+  shell_up || die "the session's shell is not answering (scripts/dev reload)"
+  case $1 in
+    open) nenv omarchy-shell -q "$ID" close 2>/dev/null || true; sleep 0.4; nenv omarchy-shell "$ID" open >/dev/null ;;
+    setup) nenv omarchy-shell "$ID" setup >/dev/null ;;
+    settings) nenv omarchy-shell "$ID" settings "${2:?settings needs an app id}" >/dev/null ;;
+    close) nenv omarchy-shell "$ID" close >/dev/null; echo "dev close: closed"; return 0 ;;
+  esac
+  sleep 2
+  overlay_up || { echo "dev $1: the window did NOT open" >&2; exit 1; }
+  echo "dev $1: window up"
+}
+
+cmd_input() {
+  load
+  local verb=$1; shift
+  overlay_up || echo "dev $verb: note, the plugin's window is not open: input goes to whatever has focus there" >&2
+  case $verb in
+    click)
+      [[ $# -ge 2 ]] || die "usage: dev click PX PY"
+      nest_click "$1" "$2"; sleep 0.8; echo "dev click: $1,$2" ;;
+    type) [[ $# -ge 1 ]] || die "usage: dev type TEXT"; nest_type "$*"; sleep 0.4; echo "dev type: ${#1} chars" ;;
+    key) [[ $# -ge 1 ]] || die "usage: dev key NAME"; nest_key "$1"; sleep 0.6; echo "dev key: $1" ;;
+  esac
+}
+
+cmd_shot() {
+  load
+  local f=${1:-${TMPDIR:-/tmp}/dev-shot-$(date +%H%M%S).png}
+  WAYLAND_DISPLAY=$NWD grim "$f" || die "grim could not capture the session"
+  echo "dev shot: $f"
+}
+
+cmd_errors() {
+  load
+  local n; n=$(plugin_errors | wc -l)
+  echo "dev errors: $n"
+  plugin_errors | head -8 | cut -c1-220 | sed 's/^/  err: /'
+  [[ $n -eq 0 ]]
+}
+
+case ${1:-} in
+  up) cmd_up ;;
+  down) cmd_down ;;
+  status) cmd_status ;;
+  watch) cmd_watch ;;
+  unwatch) cmd_unwatch ;;
+  reload) cmd_reload ;;
+  open | setup | close) cmd_window "$1" ;;
+  settings) cmd_window settings "${2:-}" ;;
+  click | type | key) verb=$1; shift; cmd_input "$verb" "$@" ;;
+  shot) shift; cmd_shot "$@" ;;
+  errors) cmd_errors ;;
+  -h | --help | help | "") usage ;;
+  *) die "unknown command $1 (scripts/dev --help)" ;;
+esac

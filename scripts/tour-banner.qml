@@ -11,9 +11,8 @@
 //                 status (nested): a file that gets "cancel" written to it when the Cancel button is pressed
 //   TOUR_STATUS   status: a file whose first line is "recording" or "done" and the rest is the text to show
 //   TOUR_NESTED   "1" when the tour runs in a nested session shown in a window on the real screen. Then the status
-//                 window is a strip above that window instead of a box in the middle of the screen, and a transparent
-//                 shield covers the window so no click reaches it.
-//   TOUR_SHIELD   nested: "X,Y,W,H", where the nested window is on the real monitor
+//                 window is a strip above that window instead of a box in the middle of the screen. (The window itself needs no
+//                 shield: the nested session switches off your mouse and keyboard, scripts/nested/session.sh.)
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -38,7 +37,6 @@ ShellRoot {
   }
 
   readonly property bool nested: Quickshell.env("TOUR_NESTED") === "1"
-  readonly property var shield: (Quickshell.env("TOUR_SHIELD") || "0,0,0,0").split(",").map(Number)
   // The strip's place and height come from the recorder (scripts/nested/session.sh), which puts the nested window below it.
   readonly property int stripGap: Number(Quickshell.env("TOUR_STRIP_GAP")) || 24
   readonly property int stripHeight: Number(Quickshell.env("TOUR_STRIP_H")) || 170
@@ -75,7 +73,7 @@ ShellRoot {
     WlrLayershell.namespace: "start-tour-banner"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: root.mode === "confirm" ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
-    implicitWidth: root.nested && root.mode === "status" ? Math.max(760, root.shield[2]) : 760
+    implicitWidth: root.nested && root.mode === "status" ? Math.max(760, 1280) : 760
     implicitHeight: root.nested && root.mode === "status" ? (root.over ? Math.min(124, root.stripHeight) : root.stripHeight) : col.implicitHeight + 72
     color: "transparent"
 
@@ -214,22 +212,4 @@ ShellRoot {
     }
   }
 
-  // Nested: a transparent window exactly over the nested session's window, above it. It takes every click and hover
-  // that would otherwise reach the nested session, so only the recorder can drive it.
-  PanelWindow {
-    visible: root.nested && root.mode === "status" && !root.over
-    screen: win.screen
-    anchors.top: true
-    anchors.left: true
-    margins.top: root.shield[1]
-    margins.left: root.shield[0]
-    implicitWidth: root.shield[2]
-    implicitHeight: root.shield[3]
-    exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.namespace: "start-tour-shield"
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-    color: "transparent"
-    MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; hoverEnabled: true; cursorShape: Qt.ForbiddenCursor }
-  }
 }

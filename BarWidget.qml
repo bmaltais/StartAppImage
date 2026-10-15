@@ -19,6 +19,8 @@ BarWidget {
 
   FileView {
     path: root.countFile
+    // The file does not exist until the first update check has run (a fresh install): that is "no updates", not an error.
+    printErrors: false
     watchChanges: true
     onFileChanged: reload()
     onLoaded: root.updates = parseInt(text()) || 0

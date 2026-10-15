@@ -5,7 +5,7 @@
 # second Hyprland that opens as a window on your screen. In it runs a second Omarchy shell with only the app's
 # plugin, in a sandbox home that holds copies of the app's data. So:
 #   - you can watch it, in a window;
-#   - your mouse and keyboard cannot reach it (a transparent shield covers the window, and it is never focused);
+#   - your mouse and keyboard cannot reach it (the nested session switches off the two devices your seat gives it);
 #   - the tour is driven over that session's own Wayland socket (a virtual pointer and virtual keyboard), so
 #     nothing the tour does moves your pointer or types into your windows;
 #   - the tour changes only the sandbox: your real settings, apps and files are not touched, so there is nothing
@@ -68,6 +68,12 @@ sandbox_build() {
       | if ([.bar.layout[]?[]? | (if type == "object" then .id else . end)] | index($id)) == null
         then .bar.layout.right += [{id: $id}] else . end' "$real_cfg" >"$h/.config/omarchy/shell.json" ||
     jq -n --arg id "$TOUR_PLUGIN_ID" '{version: 1, bar: {layout: {left: [{id: "omarchy.menu"}], center: [{id: "omarchy.clock"}], right: [{id: $id}]}}, plugins: [{id: $id}]}' >"$h/.config/omarchy/shell.json"
+  # A test session says what it is on its own bar: the nested desktop looks exactly like yours, and its window title is fixed
+  # by the nested compositor ("aquamarine - WAYLAND-N"), so this is the only way to tell them apart.
+  if [[ -n ${NEST_LABEL:-} ]]; then
+    jq --arg label "$NEST_LABEL" '.bar.layout.left = [{id: "sandbox-label", type: "command", exec: ("echo " + ($label | @sh)), interval: 3600}] + (.bar.layout.left // [])' \
+      "$h/.config/omarchy/shell.json" >"$h/shell.json.new" && mv "$h/shell.json.new" "$h/.config/omarchy/shell.json"
+  fi
   for rel in "${TOUR_SANDBOX_COPY[@]:-}"; do
     [[ -n $rel && -e $HOME/$rel ]] || continue
     mkdir -p "$h/$(dirname "$rel")"
@@ -89,9 +95,10 @@ sandbox_enter() {
 }
 
 nested_start() {
-  local before_sigs before_socks before_wins sig sock i addr
-  before_sigs=$(ls "$NEST_RT/hypr" 2>/dev/null)
-  before_socks=$(ls "$NEST_RT" 2>/dev/null | grep -E '^wayland-[0-9]+$')
+  local before_wins sig sock i addr started
+  # The session is found by being created after this point, not by having a name that was absent before: its socket is called
+  # wayland-N and the number is reused, so a stale file of an earlier session would hide it.
+  started=$(( $(date +%s) - 1 ))
   before_wins=$(real hyprctl clients -j | jq -r '.[].address')
   cat >"$NEST/hypr.lua" <<'LUA'
 -- A bare nested session for the tour recorder. None of Omarchy's own autostart: it would push this session's
@@ -102,8 +109,16 @@ hl.config({
   animations = { enabled = false },
 })
 hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
+-- The host's mouse and keyboard reach this session as two devices of its Wayland backend. Switched off here, so nothing the
+-- person at the real desktop does can move, click or type into it, even though it is an ordinary window they can cover, move
+-- or send to the scratchpad. The recorder's and scripts/dev's own input arrives as separate virtual devices and is unaffected.
+-- (NEST_HOST_INPUT=1 leaves them on, for debugging the session by hand.)
+if os.getenv("NEST_HOST_INPUT") ~= "1" then
+  hl.device({ name = "wl_pointer", enabled = false })
+  hl.device({ name = "wl_keyboard", enabled = false })
+end
 hl.on("hyprland.start", function()
-  hl.exec_cmd("QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 quickshell -n -p " .. (os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/shell")
+  hl.exec_cmd("QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 quickshell -n -p " .. (os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/shell >> " .. (os.getenv("NEST_QS_LOG") or "/dev/null") .. " 2>&1")
 end)
 LUA
   # Its own D-Bus, and one that starts nothing by itself: the usual one launches portals, file services and
@@ -124,11 +139,20 @@ LUA
   <servicedir>$NEST/dbus-services</servicedir>
 </busconfig>
 CONF
-  env -u HYPRLAND_INSTANCE_SIGNATURE -u HYPRLAND_CMD dbus-run-session --config-file="$NEST/dbus.conf" -- Hyprland -c "$NEST/hypr.lua" >"$NEST/hypr.log" 2>&1 &
-  nest_pid=$!
+  : >"$NEST/qs.log"
+  if [[ -n ${NEST_DETACH:-} ]]; then
+    # A session that outlives this script (scripts/dev): its own process group, found again by its environment, not a pid.
+    setsid -f env -u HYPRLAND_INSTANCE_SIGNATURE -u HYPRLAND_CMD NEST_QS_LOG="$NEST/qs.log" \
+      dbus-run-session --config-file="$NEST/dbus.conf" -- Hyprland -c "$NEST/hypr.lua" >"$NEST/hypr.log" 2>&1
+    nest_pid=detached
+  else
+    env -u HYPRLAND_INSTANCE_SIGNATURE -u HYPRLAND_CMD NEST_QS_LOG="$NEST/qs.log" \
+      dbus-run-session --config-file="$NEST/dbus.conf" -- Hyprland -c "$NEST/hypr.lua" >"$NEST/hypr.log" 2>&1 &
+    nest_pid=$!
+  fi
   for i in $(seq 1 60); do
-    sig=$(comm -13 <(echo "$before_sigs" | sort) <(ls "$NEST_RT/hypr" 2>/dev/null | sort) | head -n1)
-    sock=$(comm -13 <(echo "$before_socks" | sort) <(ls "$NEST_RT" 2>/dev/null | grep -E '^wayland-[0-9]+$' | sort) | head -n1)
+    sig=$(find "$NEST_RT/hypr" -mindepth 1 -maxdepth 1 -type d -newermt "@$started" -printf '%f\n' 2>/dev/null | head -n1)
+    sock=$(find "$NEST_RT" -maxdepth 1 -name 'wayland-[0-9]*' ! -name '*.lock' -newermt "@$started" -printf '%f\n' 2>/dev/null | head -n1)
     [[ -n $sig && -n $sock ]] && break
     sleep 0.5
   done
@@ -155,11 +179,10 @@ nested_place() { # PREVIOUS_FOCUS_ADDRESS
   fi
   real hyprctl dispatch "hl.dsp.window.resize({ x = $W, y = $H, exact = true, window = \"address:$NEST_ADDR\" })" >/dev/null
   real hyprctl dispatch "hl.dsp.window.move({ x = $((mx + (mw - W) / 2)), y = $((my + NEST_TOP)), exact = true, window = \"address:$NEST_ADDR\" })" >/dev/null
-  SHIELD="$(((mw - W) / 2)),$NEST_TOP,$W,$H"
   [[ -n ${1:-} ]] && real hyprctl dispatch "hl.dsp.focus({ window = \"address:$1\" })" >/dev/null
-  # Handing the keyboard back raised that window over this one: put this one on top again, and keep it there.
+  # Handing the keyboard back raised that window over this one: put this one on top again. It is an ordinary window after that:
+  # drag it, cover it, send it to the scratchpad; the nested session does not notice.
   real hyprctl dispatch "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"address:$NEST_ADDR\" })" >/dev/null
-  real hyprctl dispatch "hl.dsp.window.pin({ action = \"enable\", window = \"address:$NEST_ADDR\" })" >/dev/null
   sleep 1
 }
 
@@ -196,13 +219,16 @@ _nested_kill() { kill -KILL "$1" 2>/dev/null; }
 nested_stop() {
   [[ -n $nest_pid ]] || return 0
   # What runs inside goes first, then the compositor: a portal that loses its compositor crashes, and Omarchy tells you.
-  nested_procs _nested_term
+  nested_procs _nested_term || true
   sleep 1.5
-  env HYPRLAND_INSTANCE_SIGNATURE="$NSIG" hyprctl dispatch "hl.dsp.exit()" >/dev/null 2>&1
+  env HYPRLAND_INSTANCE_SIGNATURE="$NSIG" hyprctl dispatch "hl.dsp.exit()" >/dev/null 2>&1 || true
   sleep 1.5
-  kill "$nest_pid" 2>/dev/null
+  [[ $nest_pid == detached ]] || kill "$nest_pid" 2>/dev/null || true
   nest_pid=""
-  nested_procs _nested_kill
+  nested_procs _nested_kill || true
+  # What a compositor that was killed rather than quit leaves behind: its instance folder and Wayland socket.
+  [[ -n $NSIG ]] && rm -rf "${NEST_RT:?}/hypr/$NSIG"
+  [[ -n $NWD ]] && rm -f "${NEST_RT:?}/$NWD" "${NEST_RT:?}/$NWD.lock"
 }
 
 # ---- input: over the nested session's own socket --------------------------------------------------------

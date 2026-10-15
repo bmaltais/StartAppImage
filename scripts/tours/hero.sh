@@ -23,6 +23,8 @@ TOUR_RESTART_SHELL=1            # virtual monitor mode: the shell reads the rese
 TOUR_PLUGIN_ID=io.github.bmaltais.startappimage
 TOUR_SANDBOX_COPY=(.local/share/startappimage .local/share/applications)
 TOUR_SANDBOX_LINK=(.local/share/icons)
+# With --nested the recorder proves the tour touched none of these (it fails the run if one changed).
+TOUR_REAL_UNCHANGED=(.config/omarchy/shell.json .config/startappimage .local/share/startappimage Applications)
 
 ID=io.github.bmaltais.startappimage
 CLI=$HOME/.config/omarchy/plugins/$ID/bin/startappimage

@@ -473,7 +473,7 @@ cmd_list() {
 pending_updates() {
   need jq; shopt -s nullglob
   local f id src tag url
-  for f in "$DB_DIR"/${1:+$1}*.env; do
+  for f in "$DB_DIR"/"${1:-}"*.env; do
     id=$(basename "$f" .env); [[ -z "${1:-}" || $id == "$1" ]] || continue
     src=$(db_get "$id" SOURCE); [[ $src == github:* ]] || continue
     IFS=$'\t' read -r tag url < <(gh_latest "$(gh_repo "$src")") || continue
@@ -657,14 +657,14 @@ cmd_integration() {
     hname=${hname:-${h%.desktop}}
   fi
   # Existing users who ran `register` before the setup card existed are already set up.
-  local done=false
-  { [[ $(cfg_get SETUP_DONE) == 1 ]] || { [[ $launcher == true && $ours == true ]]; }; } && done=true
-  jq -n --argjson launcher "$launcher" --argjson ours "$ours" --argjson done "$done" \
+  local finished=false
+  { [[ $(cfg_get SETUP_DONE) == 1 ]] || { [[ $launcher == true && $ours == true ]]; }; } && finished=true
+  jq -n --argjson launcher "$launcher" --argjson ours "$ours" --argjson finished "$finished" \
     --arg handler "$h" --arg handlerName "$hname" --arg cli "$(cli_state)" --arg cliPath "$(short_home "$CLI_LINK")" --argjson hours "$(cfg_get CHECK_HOURS | grep -E '^[0-9]+$' || echo 6)" \
     --argjson baricon "$(bar_icon_state)" \
     --argjson rsize "$([[ $(cfg_get REMEMBER_SIZE) == false ]] && echo false || echo true)" \
     --argjson rpos "$([[ $(cfg_get REMEMBER_POSITION) == false ]] && echo false || echo true)" \
-    '{launcher:$launcher, handler:{ours:$ours, current:$handler, name:$handlerName}, cli:{state:$cli, path:$cliPath}, checkHours:$hours, barIcon:$baricon, rememberSize:$rsize, rememberPosition:$rpos, done:$done}'
+    '{launcher:$launcher, handler:{ours:$ours, current:$handler, name:$handlerName}, cli:{state:$cli, path:$cliPath}, checkHours:$hours, barIcon:$baricon, rememberSize:$rsize, rememberPosition:$rpos, done:$finished}'
 }
 
 # setup [--launcher true|false] [--handler true|false] [--cli true|false] [--done]
