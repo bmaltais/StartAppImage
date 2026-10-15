@@ -10,6 +10,7 @@ Rectangle {
   property string placeholder: ""
   readonly property bool focused: input.activeFocus
   signal accepted()
+  signal escaped()      // Escape was pressed in the box; the key still goes on to the window
 
   function focusInput() { input.forceActiveFocus() }
 
@@ -31,6 +32,7 @@ Rectangle {
     font.pixelSize: Style.font.bodySmall
     clip: true
     onAccepted: field.accepted()
+    Keys.onEscapePressed: function (event) { field.escaped(); event.accepted = false }
 
     Text {
       visible: input.text === ""

@@ -26,9 +26,15 @@ Item {
 
   // ---- what the window shows ----------------------------------------------
   property bool shown: false
-  property string view: "manager"            // "manager" | "install" | "settings"
-  // The settings window floats over the manager rather than replacing it.
+  property string view: "manager"            // "manager" | "install"
+  // The settings windows float over the manager rather than replacing it: the main settings
+  // (setupOpen), or one app's (appSettingsOpen).
   property bool setupOpen: false
+  property bool appSettingsOpen: false
+  // The overlay is shown once what it holds has loaded, so it never flashes empty.
+  readonly property bool settingsOverlay: (root.setupOpen && root.integLoaded)
+    || (root.appSettingsOpen && root.settingsState !== "loading" && root.locationsReady)
+  function closeOverlay() { if (root.appSettingsOpen) root.closeSettings(); else root.closeSetup() }
   property var targetScreen: null
 
   // The window is only mapped once what it shows has loaded, so it never flashes
@@ -36,8 +42,7 @@ Item {
   property bool listLoaded: false
   property bool slow: false
   readonly property bool ready: root.slow || (root.view === "manager" ? root.listLoaded
-    : root.view === "install" ? (root.installState !== "loading" && root.locationsReady)
-    : (root.settingsState !== "loading" && root.locationsReady))
+    : (root.installState !== "loading" && root.locationsReady))
   onShownChanged: {
     root.slow = false
     if (root.shown) slowTimer.restart()
@@ -103,6 +108,7 @@ Item {
 
   function showManager() {
     root.setupOpen = false
+    root.appSettingsOpen = false
     root.view = "manager"
     root.targetScreen = root.focusedScreen()
     root.shown = true
@@ -130,6 +136,7 @@ Item {
     root.installedId = ""
     root.installState = "loading"
     root.setupOpen = false
+    root.appSettingsOpen = false
     root.view = "install"
     root.targetScreen = root.focusedScreen()
     root.shown = true
@@ -137,7 +144,7 @@ Item {
     infoProc.running = true
   }
 
-  function close() { root.setupOpen = false; root.shown = false }
+  function close() { root.setupOpen = false; root.appSettingsOpen = false; root.shown = false }
   function closeSetup() { root.setupOpen = false; Qt.callLater(function () { managerView.focusSearch() }) }
 
   function showSetup() {
@@ -149,6 +156,7 @@ Item {
       root.shown = true
       root.refresh()
     }
+    root.appSettingsOpen = false
     root.setupOpen = true
     integProc.running = true
   }
@@ -179,14 +187,21 @@ Item {
     root.cfg = ({})
     root.settingsError = ""
     root.settingsState = "loading"
+    // The manager stays behind it: opened first when it was not already showing.
+    if (!root.shown || root.view !== "manager") {
+      root.view = "manager"
+      root.targetScreen = root.focusedScreen()
+      root.shown = true
+      root.refresh()
+    }
     root.setupOpen = false
-    root.view = "settings"
+    root.appSettingsOpen = true
     locProc.running = true
     cfgProc.command = [root.cli, "config", app.id]
     cfgProc.running = true
   }
 
-  function closeSettings() { root.view = "manager" }
+  function closeSettings() { root.appSettingsOpen = false; Qt.callLater(function () { managerView.focusSearch() }) }
 
   // ---- update source preview: what a pasted link points at ------------------------
   property var resolved: ({})                 // result of `resolve` for resolveAsked
@@ -200,10 +215,26 @@ Item {
     if (!resolveProc.running) resolveProc.start()
   }
 
-  function saveSettings(args) {
+  // One app's settings go one at a time, in the order they were made; the window stays open and
+  // the settings are read back when the last one is done.
+  property var settingsQueue: []
+  property bool settingsBusy: false
+  function applyAppSetting(args) {
     root.settingsError = ""
-    root.settingsState = "saving"
-    setProc.command = [root.cli, "set", root.settingsApp.id].concat(args)
+    root.settingsQueue = root.settingsQueue.concat([args])
+    root.runNextAppSetting()
+  }
+  function runNextAppSetting() {
+    if (setProc.running) return
+    if (root.settingsQueue.length === 0) {
+      root.settingsBusy = false
+      cfgProc.command = [root.cli, "config", root.settingsApp.id]
+      cfgProc.running = true
+      return
+    }
+    root.settingsBusy = true
+    setProc.command = [root.cli, "set", root.settingsApp.id].concat(root.settingsQueue[0])
+    root.settingsQueue = root.settingsQueue.slice(1)
     setProc.running = true
   }
 
@@ -274,8 +305,6 @@ Item {
     function install(path: string): void { root.showInstall(path) }
     function settings(id: string): void {
       var app = root.apps.filter(function (a) { return a.id === id })[0] || { id: id }
-      root.targetScreen = root.focusedScreen()
-      root.shown = true
       root.showSettings(app)
     }
     function setup(): void { root.showSetup() }
@@ -412,15 +441,11 @@ Item {
     id: setProc
     stderr: SplitParser { onRead: line => root.settingsError = line.replace(/^startappimage: /, "") }
     onExited: code => {
-      root.settingsState = "ready"
-      if (code === 0) {
-        root.view = "manager"
-        root.say("Saved", false)
-        root.refresh()
-        root.check()
-      } else if (root.settingsError === "") {
-        root.settingsError = "Could not save the settings."
-      }
+      if (code !== 0 && root.settingsError === "") root.settingsError = "Could not save the setting."
+      // The list and the update check follow what changed; the window stays open.
+      root.refresh()
+      root.check()
+      root.runNextAppSetting()
     }
   }
 
@@ -624,7 +649,7 @@ Item {
     Rectangle {
       anchors.fill: parent
       color: Color.menu.scrim
-      MouseArea { anchors.fill: parent; onClicked: { if (root.setupOpen) root.closeSetup(); else root.close() } }
+      MouseArea { anchors.fill: parent; onClicked: { if (root.setupOpen || root.appSettingsOpen) root.closeOverlay(); else root.close() } }
     }
 
     RectangularShadow {
@@ -642,7 +667,6 @@ Item {
       anchors.verticalCenterOffset: win.dragY
       width: root.view === "manager" ? (win.sizeW > 0 ? win.sizeW : Style.space(640)) : Style.space(520)
       height: root.view === "install" ? installView.implicitHeight
-        : root.view === "settings" ? settingsView.implicitHeight
         : win.sizeH > 0 ? win.sizeH
         : Math.max(Style.space(300), Math.min(managerView.implicitHeight, Style.space(580), (win.screen ? win.screen.height : 900) - Style.space(80)))
       radius: root.radius
@@ -650,7 +674,7 @@ Item {
       border.width: Style.normalBorderWidth
       border.color: Util.alpha(Color.foreground, 0.14)
       focus: true
-      Keys.onEscapePressed: { if (root.view === "settings") root.closeSettings(); else root.close() }
+      Keys.onEscapePressed: root.close()
 
       // Swallow clicks so they do not reach the dismiss area behind the card.
       MouseArea { anchors.fill: parent }
@@ -686,14 +710,6 @@ Item {
         anchors.right: parent.right
         svc: root
         visible: root.view === "install"
-      }
-
-      SettingsView {
-        id: settingsView
-        anchors.left: parent.left
-        anchors.right: parent.right
-        svc: root
-        visible: root.view === "settings"
       }
 
       // Resize handle in the manager's bottom-right corner: a small grip and a resize pointer.
@@ -756,11 +772,11 @@ Item {
     // ---- the settings window, over the manager ------------------------------------------
     // The manager stays where it is, dimmed; closing the settings brings it back.
     Rectangle {
-      visible: root.setupOpen && root.integLoaded
+      visible: root.settingsOverlay
       anchors.fill: frame
       radius: frame.radius
       color: Qt.rgba(0, 0, 0, 0.35)
-      MouseArea { anchors.fill: parent; onClicked: root.closeSetup() }
+      MouseArea { anchors.fill: parent; onClicked: root.closeOverlay() }
     }
 
     RectangularShadow {
@@ -774,7 +790,7 @@ Item {
 
     Rectangle {
       id: setupFrame
-      visible: root.setupOpen && root.integLoaded
+      visible: root.settingsOverlay
       anchors.centerIn: parent
       anchors.horizontalCenterOffset: win.sDragX
       anchors.verticalCenterOffset: win.sDragY
@@ -785,7 +801,7 @@ Item {
       border.width: Style.normalBorderWidth
       border.color: Util.alpha(Color.foreground, 0.14)
       focus: true
-      Keys.onEscapePressed: root.closeSetup()
+      Keys.onEscapePressed: root.closeOverlay()
       onVisibleChanged: if (visible) setupFrame.forceActiveFocus()
 
       // Swallow clicks so they do not reach the dismiss area behind the card.
@@ -812,6 +828,14 @@ Item {
         id: setupView
         anchors.fill: parent
         svc: root
+        visible: root.setupOpen
+      }
+
+      SettingsView {
+        id: settingsView
+        anchors.fill: parent
+        svc: root
+        visible: root.appSettingsOpen
       }
 
       // Resize handle in the bottom-right corner, as on the manager.
@@ -853,7 +877,7 @@ Item {
         z: 10
         iconText: "\uF00D"
         tooltipText: "Close"
-        onClicked: root.closeSetup()
+        onClicked: root.closeOverlay()
       }
     }
   }
