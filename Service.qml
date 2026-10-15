@@ -551,9 +551,10 @@ Item {
   // Once the shell has settled, offer setup if it has never been answered.
   Timer { interval: 4000; running: true; onTriggered: { root.offerSetup = true; integProc.running = true } }
   // Hours between background checks; 0 turns them off. Set on the setup card.
-  readonly property bool rememberSize: root.integ.rememberSize !== false
-  readonly property bool rememberPosition: root.integ.rememberPosition !== false
-  readonly property int checkHours: root.integ.checkHours !== undefined ? root.integ.checkHours : 6
+  // The values and their defaults come from `startappimage integration`; until it has been read, remember and do not check.
+  readonly property bool rememberSize: root.integ.defaults ? root.integ.rememberSize : true
+  readonly property bool rememberPosition: root.integ.defaults ? root.integ.rememberPosition : true
+  readonly property int checkHours: root.integ.defaults ? root.integ.checkHours : 0
   Timer { interval: Math.max(1, root.checkHours) * 60 * 60 * 1000; running: root.checkHours > 0; repeat: true; onTriggered: root.check() }
   Timer { id: noticeTimer; interval: 6000; onTriggered: root.notice = "" }
 
