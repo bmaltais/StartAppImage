@@ -223,7 +223,7 @@ The session is shared with `scripts/dev` ([testing.md](testing.md) has the full 
 The recorder has no StartAppImage in it. To use it for another app:
 
 1. Copy `scripts/tour.sh` into the app's repo (it will live in a shared repository when the Start apps get one, see "Shared UI code" in [ui-standards.md](ui-standards.md)).
-2. Copy `scripts/nested/` and `scripts/dev-view.qml` too (the session). Write the app's tour file in its `scripts/tours/` (start from the minimal tour above, and copy `scripts/tours/hero.sh` for a worked example with `tour_prepare`, `tour_sandbox` and `TOUR_REAL_UNCHANGED`).
+2. Copy `scripts/nested/` and `scripts/dev-view.qml` too (the session). Write the app's tour file in its `scripts/tours/` (start from the minimal tour above, and copy `scripts/tours/hero.sh` for a worked example with `tour_prepare` and `TOUR_REAL_UNCHANGED`).
 3. Set `TOUR_TITLE`, `TOUR_OUT` and `TOUR_LAYER`, find the coordinates, and run it without `--install` until it reads well.
 4. Add `screenshots/hero.avif` (or wherever `TOUR_OUT` points) to the app's README, and a line to its contributing notes about retaking it. Put the image in a `<picture>` so that clicking it does nothing:
 
