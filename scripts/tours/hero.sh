@@ -82,20 +82,20 @@ tour_play() {
   glide 500 515; sleep 0.5
   glide 706 515; sleep 0.7
   glide 820 515; sleep 1.6
-  esc; sleep 0.8
+  esc; sleep 0.1
 
   # 2. The manager: everything installed, with an update waiting.
   cap "Everything you installed, in one place. Updates at a glance"
   omarchy-shell $ID open
-  sleep 1.4
+  sleep 1.0
   glide 640 330; glide 640 480; sleep 0.4
-  glide 640 300; sleep 2.6
+  glide 640 300; sleep 1.6
 
   # 3. One click to update.
   cap "One click to update"
   click 766 288 0.5
   wait_until "grep -q '^VERSION=v0.4.1' \"\$(artenv)\"" 30
-  sleep 2.4
+  sleep 1.2
 
   # 4. Point an app at its GitHub releases; the link is checked as you type.
   cap "Point an app at its GitHub releases. The link is checked as you type"
@@ -127,9 +127,11 @@ tour_play() {
   drag 130 30
   glide 760 142; sleep 0.4
   drag -170 -10
-  sleep 1.0
-  esc; sleep 1.0
+  sleep 0.4
+  # Closed and straight away open again, so the bare desktop is on screen only as long as the window takes to appear.
+  esc; sleep 0.15
   omarchy-shell $ID open
-  sleep 2.6
-  esc; sleep 0.35
+  sleep 1.6
+  # The story ends here: closed, and the desktop is back as it was.
+  esc; sleep 0.8
 }
