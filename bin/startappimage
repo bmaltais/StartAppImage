@@ -33,6 +33,7 @@ Usage: startappimage <command> [args]
   set <name> [--name N] [--dir D] [--args A] [--source S] [--hidden true|false]
                                             Change an app's settings
   setup [--launcher B] [--handler B] [--cli B] [--check-hours N]
+        [--remember-size B] [--remember-position B]
                                             Desktop integration and how often updates are checked (0 = never)
   window [--size WxH] [--offset X,Y] [--reset]
                                             The manager's remembered size and place (no option prints them)
@@ -655,18 +656,24 @@ cmd_integration() {
   { [[ $(cfg_get SETUP_DONE) == 1 ]] || { [[ $launcher == true && $ours == true ]]; }; } && done=true
   jq -n --argjson launcher "$launcher" --argjson ours "$ours" --argjson done "$done" \
     --arg handler "$h" --arg handlerName "$hname" --arg cli "$(cli_state)" --arg cliPath "$(short_home "$CLI_LINK")" --argjson hours "$(cfg_get CHECK_HOURS | grep -E '^[0-9]+$' || echo 6)" \
-    '{launcher:$launcher, handler:{ours:$ours, current:$handler, name:$handlerName}, cli:{state:$cli, path:$cliPath}, checkHours:$hours, done:$done}'
+    --argjson rsize "$([[ $(cfg_get REMEMBER_SIZE) == false ]] && echo false || echo true)" \
+    --argjson rpos "$([[ $(cfg_get REMEMBER_POSITION) == false ]] && echo false || echo true)" \
+    '{launcher:$launcher, handler:{ours:$ours, current:$handler, name:$handlerName}, cli:{state:$cli, path:$cliPath}, checkHours:$hours, rememberSize:$rsize, rememberPosition:$rpos, done:$done}'
 }
 
 # setup [--launcher true|false] [--handler true|false] [--cli true|false] [--done]
 # Only what is named is touched. --done records that the setup card has been answered.
 cmd_setup() {
-  local launcher="" handler="" cli="" hours="" mark=0 failed=0
+  local launcher="" handler="" cli="" hours="" rsize="" rpos="" mark=0 failed=0
   while (( $# )); do
     case $1 in
       --launcher|--handler|--cli)
         [[ ${2:-} == true || ${2:-} == false ]] || die "setup: $1 takes true or false"
         case $1 in --launcher) launcher=$2 ;; --handler) handler=$2 ;; --cli) cli=$2 ;; esac
+        shift 2 ;;
+      --remember-size|--remember-position)
+        [[ ${2:-} == true || ${2:-} == false ]] || die "setup: $1 takes true or false"
+        case $1 in --remember-size) rsize=$2 ;; --remember-position) rpos=$2 ;; esac
         shift 2 ;;
       --check-hours)
         [[ ${2:-} =~ ^[0-9]+$ ]] || die "setup: --check-hours takes a number of hours (0 turns checks off)"
@@ -681,7 +688,10 @@ cmd_setup() {
     if is_true "$cli"; then cli_on || failed=1; else cli_off; fi
   fi
   [[ -z $hours ]] || cfg_set CHECK_HOURS "$hours"
-  [[ $mark -eq 0 && -z $launcher$handler$cli$hours ]] || cfg_set SETUP_DONE 1
+  # Switching one off also forgets what was saved, so the next open starts from the default.
+  if [[ -n $rsize ]]; then cfg_set REMEMBER_SIZE "$rsize"; is_true "$rsize" || { cfg_set WIN_W ""; cfg_set WIN_H ""; }; fi
+  if [[ -n $rpos ]]; then cfg_set REMEMBER_POSITION "$rpos"; is_true "$rpos" || { cfg_set WIN_X ""; cfg_set WIN_Y ""; }; fi
+  [[ $mark -eq 0 && -z $launcher$handler$cli$hours$rsize$rpos ]] || cfg_set SETUP_DONE 1
   return $failed
 }
 

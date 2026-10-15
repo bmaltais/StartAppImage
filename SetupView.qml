@@ -14,6 +14,8 @@ Item {
   property bool handler: true
   property bool cli: true
   property int hours: 6
+  property bool rsize: true
+  property bool rpos: true
 
   readonly property var integ: view.svc.integ
   readonly property bool otherHandler: !!(view.integ.handler && !view.integ.handler.ours && view.integ.handler.current)
@@ -32,11 +34,15 @@ Item {
       view.handler = i.handler.ours
       view.cli = i.cli.state === "ours"
       view.hours = i.checkHours
+      view.rsize = i.rememberSize
+      view.rpos = i.rememberPosition
     } else {
       view.launcher = true
       view.handler = true
       view.cli = !view.cliBlocked
       view.hours = 6
+      view.rsize = true
+      view.rpos = true
     }
   }
   onVisibleChanged: if (visible) view.load()
@@ -152,6 +158,19 @@ Item {
       Hint { text: "Apps installed from a GitHub release are checked in the background, and a popup offers the update when a new version is out." }
     }
 
+    // Window memory
+    ColumnLayout {
+      Layout.fillWidth: true
+      spacing: Style.spacing.md
+      Label { text: "MANAGER WINDOW" }
+      Row {
+        spacing: Style.spacing.md
+        Chip { label: "Remember size"; selected: view.rsize; onClicked: view.rsize = !view.rsize }
+        Chip { label: "Remember position"; selected: view.rpos; onClicked: view.rpos = !view.rpos }
+      }
+      Hint { text: "Drag the top strip to move the manager and its bottom-right corner to resize it. Switched off, it opens centred at the default size." }
+    }
+
     Hint { text: "Only your home folder is touched, and every choice can be changed later from the setup button in the manager." }
 
     RowLayout {
@@ -166,7 +185,7 @@ Item {
       Button {
         text: view.svc.setupBusy ? "Applying..." : "Apply"
         selected: true
-        onClicked: view.svc.applySetup(view.launcher, view.handler, view.cli && !view.cliBlocked, view.hours)
+        onClicked: view.svc.applySetup(view.launcher, view.handler, view.cli && !view.cliBlocked, view.hours, view.rsize, view.rpos)
       }
     }
   }

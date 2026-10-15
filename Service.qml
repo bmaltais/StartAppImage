@@ -149,10 +149,11 @@ Item {
     root.close()
   }
 
-  function applySetup(launcher, handler, cli, hours) {
+  function applySetup(launcher, handler, cli, hours, rsize, rpos) {
     if (setupProc.running) return
     root.setupBusy = true
-    setupProc.command = [root.cli, "setup", "--launcher", String(launcher), "--handler", String(handler), "--cli", String(cli), "--check-hours", String(hours)]
+    setupProc.command = [root.cli, "setup", "--launcher", String(launcher), "--handler", String(handler), "--cli", String(cli), "--check-hours", String(hours),
+      "--remember-size", String(rsize), "--remember-position", String(rpos)]
     setupProc.running = true
   }
 
@@ -493,6 +494,8 @@ Item {
   // Once the shell has settled, offer setup if it has never been answered.
   Timer { interval: 4000; running: true; onTriggered: { root.offerSetup = true; integProc.running = true } }
   // Hours between background checks; 0 turns them off. Set on the setup card.
+  readonly property bool rememberSize: root.integ.rememberSize !== false
+  readonly property bool rememberPosition: root.integ.rememberPosition !== false
   readonly property int checkHours: root.integ.checkHours !== undefined ? root.integ.checkHours : 6
   Timer { interval: Math.max(1, root.checkHours) * 60 * 60 * 1000; running: root.checkHours > 0; repeat: true; onTriggered: root.check() }
   Timer { id: noticeTimer; interval: 6000; onTriggered: root.notice = "" }
@@ -520,11 +523,16 @@ Item {
     // opening it again puts it back, kept on the screen in case the screen has changed.
     // (The window has no size until it is shown, so the check waits for one.)
     onHeightChanged: if (visible) win.moveBy(0, 0)
+    onVisibleChanged: if (visible) {
+      if (!root.rememberPosition) { win.dragX = 0; win.dragY = 0 }
+      if (!root.rememberSize) { win.sizeW = 0; win.sizeH = 0 }
+    }
 
     function saveWindow(withSize) {
-      var args = [root.cli, "window", "--offset", Math.round(win.dragX) + "," + Math.round(win.dragY)]
-      if (withSize && win.sizeW > 0) args.push("--size", Math.round(win.sizeW) + "x" + Math.round(win.sizeH))
-      Quickshell.execDetached(args)
+      var args = [root.cli, "window"]
+      if (root.rememberPosition) args.push("--offset", Math.round(win.dragX) + "," + Math.round(win.dragY))
+      if (withSize && root.rememberSize && win.sizeW > 0) args.push("--size", Math.round(win.sizeW) + "x" + Math.round(win.sizeH))
+      if (args.length > 2) Quickshell.execDetached(args)
     }
     function resetWindow() {
       win.sizeW = 0; win.sizeH = 0; win.dragX = 0; win.dragY = 0
