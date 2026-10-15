@@ -302,10 +302,14 @@ Item {
     id: setupProc
     property string last: ""
     stderr: SplitParser { onRead: line => setupProc.last = line.replace(/^startappimage: /, "") }
-    onStarted: setupProc.last = ""
-    onExited: code => {
+    onStarted: { setupProc.last = ""; console.log("startappimage setup:", JSON.stringify(setupProc.command)) }
+    onExited: (code, status) => {
+      console.log("startappimage setup exited", code, status, setupProc.last)
       root.setupBusy = false
       root.close()
+      // The card is gone by now, so a failure is also said as a notification.
+      if (code !== 0) Quickshell.execDetached(["notify-send", "-a", "StartAppImage", "-u", "critical", "Setup was not applied",
+        setupProc.last !== "" ? setupProc.last : "exit code " + code])
       root.say(code === 0 ? "Setup saved" : (setupProc.last !== "" ? setupProc.last : "Setup could not be saved"), code !== 0)
     }
   }

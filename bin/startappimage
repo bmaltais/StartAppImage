@@ -695,12 +695,14 @@ cmd_setup() {
   if [[ -n $cli ]]; then
     if is_true "$cli"; then cli_on || failed=1; else cli_off; fi
   fi
-  [[ -z $baricon ]] || bar_icon_set "$baricon" || failed=1
   [[ -z $hours ]] || cfg_set CHECK_HOURS "$hours"
   # Switching one off also forgets what was saved, so the next open starts from the default.
   if [[ -n $rsize ]]; then cfg_set REMEMBER_SIZE "$rsize"; is_true "$rsize" || { cfg_set WIN_W ""; cfg_set WIN_H ""; }; fi
   if [[ -n $rpos ]]; then cfg_set REMEMBER_POSITION "$rpos"; is_true "$rpos" || { cfg_set WIN_X ""; cfg_set WIN_Y ""; }; fi
   [[ $mark -eq 0 && -z $launcher$handler$cli$hours$rsize$rpos$baricon ]] || cfg_set SETUP_DONE 1
+  # Last: changing the bar makes the shell reload its config, which can restart the plugin
+  # (and this process) part-way through.
+  [[ -z $baricon ]] || bar_icon_set "$baricon" || failed=1
   return $failed
 }
 
