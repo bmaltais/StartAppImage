@@ -500,6 +500,20 @@ Item {
     property real dragX: 0
     property real dragY: 0
     onVisibleChanged: if (visible) { win.dragX = 0; win.dragY = 0 }
+    // The manager can be resized from its bottom-right corner. 0 means the default size;
+    // a chosen size is kept until the shell restarts.
+    property real sizeW: 0
+    property real sizeH: 0
+    // The top-left corner stays put: the card is centred plus an offset, so a change of
+    // size moves the centre by half of it.
+    function resizeBy(dx, dy) {
+      var w = Math.max(Style.space(480), Math.min(win.width - Style.space(40), frame.width + dx))
+      var h = Math.max(Style.space(300), Math.min(win.height - Style.space(40), frame.height + dy))
+      win.dragX += (w - frame.width) / 2
+      win.dragY += (h - frame.height) / 2
+      win.sizeW = w
+      win.sizeH = h
+    }
     // Keeps the card on the screen: at least the top strip stays reachable.
     function moveBy(dx, dy) {
       var grab = Style.space(60)
@@ -530,10 +544,11 @@ Item {
       anchors.centerIn: parent
       anchors.horizontalCenterOffset: win.dragX
       anchors.verticalCenterOffset: win.dragY
-      width: root.view === "manager" ? Style.space(640) : Style.space(520)
+      width: root.view === "manager" ? (win.sizeW > 0 ? win.sizeW : Style.space(640)) : Style.space(520)
       height: root.view === "install" ? installView.implicitHeight
         : root.view === "setup" ? setupView.implicitHeight
         : root.view === "settings" ? settingsView.implicitHeight
+        : win.sizeH > 0 ? win.sizeH
         : Math.max(Style.space(300), Math.min(managerView.implicitHeight, Style.space(580), (win.screen ? win.screen.height : 900) - Style.space(80)))
       radius: root.radius
       color: Color.menu.background
@@ -591,6 +606,36 @@ Item {
         anchors.right: parent.right
         svc: root
         visible: root.view === "setup"
+      }
+
+      // Resize handle in the manager's bottom-right corner: a small grip and a resize pointer.
+      MouseArea {
+        visible: root.view === "manager"
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        width: Style.space(22)
+        height: Style.space(22)
+        z: 10
+        cursorShape: Qt.SizeFDiagCursor
+        property real pressX: 0
+        property real pressY: 0
+        onPressed: function (mouse) { pressX = mouse.x; pressY = mouse.y }
+        onPositionChanged: function (mouse) {
+          if (pressed) win.resizeBy(mouse.x - pressX, mouse.y - pressY)
+        }
+        Repeater {
+          model: [0, 1]
+          Rectangle {
+            width: Style.space(10) - index * Style.space(5)
+            height: Math.max(1, Style.normalBorderWidth)
+            radius: height / 2
+            color: Util.alpha(Color.foreground, 0.30)
+            rotation: -45
+            x: parent.width - Style.space(14) + index * Style.space(5)
+            y: parent.height - Style.space(9) - index * Style.space(5) + Style.space(1)
+            transformOrigin: Item.Center
+          }
+        }
       }
 
       // Close button in the card's top-right corner, on every view.
