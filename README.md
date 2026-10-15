@@ -34,7 +34,7 @@ That is all. A few seconds after the shell loads, the **settings window** opens 
 | **Open `.AppImage` files with** | Makes StartAppImage the program that opens them, so a double-click shows the install card | StartAppImage, replacing any app that opens them today (it is remembered, see below) |
 | **Command line** | Links `~/.local/bin/startappimage` so you can use it in a terminal | On, unless that path is taken |
 
-Every change in the settings window **applies the moment you make it**, as in StartBar; there is no Apply button.
+Every change in the settings window **applies the moment you make it**, as in StartBar; there is no Apply button. Both settings windows, the main one and each app's, carry a small **SETTINGS** label under their title (an app's also shows its version), and a **Find a setting** search at the top.
 
 - **Another app already opens AppImages?** The window names it ("Today these files open with *X*"). StartAppImage takes over and remembers *X*; switch the setting back later, from the window or with `setup --handler false`, and *X* gets the files back. Pick **Keep X** to leave it in charge from the start.
 - **Something else at `~/.local/bin/startappimage`?** It is left alone and the window says so.

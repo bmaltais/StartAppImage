@@ -14,6 +14,7 @@ SettingsWindow {
   readonly property bool ready: view.svc.settingsState === "ready"
 
   title: view.cfg.name || ""
+  subtitle: "SETTINGS" + (view.cfg.version && view.cfg.version !== "local" ? "  \u00b7  " + view.cfg.version : "")
   // The icon comes from the list of apps, which knows it even when the window was opened by command.
   titleIcon: {
     var id = view.svc.settingsApp.id

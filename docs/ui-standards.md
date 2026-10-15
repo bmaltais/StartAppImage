@@ -54,6 +54,7 @@ Modelled on StartBar's settings window.
 ┌──────────────────────────────────────────────────────────┐
 │                  ( 🔍 Find a setting )                  ✕ │  header, 60
 │ StartAppImage │ General                                   │
+│ SETTINGS      │                                           │
 │ ▌General      │ App launcher entry              [●━]      │
 │  Bar          │ hint…                                     │  rows
 │  Updates      │ ───────────────────────────────────────── │
@@ -65,7 +66,7 @@ Modelled on StartBar's settings window.
 ```
 
 - **Header (60).** A centred search pill, "Find a setting", with the magnifier glyph. While there is text, the right side lists matching settings from every page under "Search results", each group headed by its page name. No match says "No setting matches “…”."
-- **Page list (190 wide, left).** The window name in bold, then one 38 high row per page. The current page has a 22% accent fill and a 3 wide accent mark on the left, and bold text. Hover is the shell's hover fill. A click clears any search.
+- **Page list (190 wide, left).** The window name in bold with a small-caps line under it that says what the window is for: "SETTINGS" (and for an app, "SETTINGS · 0.8.0" with its version), the same title-over-small-caps pattern as the manager's "7 INSTALLED". Then one 38 high row per page. The title block and the page heading beside it are 48 high. The current page has a 22% accent fill and a 3 wide accent mark on the left, and bold text. Hover is the shell's hover fill. A click clears any search.
 - **Heading.** The page name, body size + 8, bold, on the row of the window name.
 - **Body.** Scrolls when the page is taller than the window, with the [scroll bar](#controls) in a gutter that is always reserved, so the width never changes.
 - **Setting row.** The label (body size) with its hint under it (caption size, 55% opacity), the control on the right, a hairline at 50% under each row. The row is as tall as its label plus hint, with 6 above and below.
@@ -88,7 +89,7 @@ A new setting goes on the page it belongs to, or a new page if none fits. Add it
 
 ### App settings
 
-The window title is the app's icon and name. Pages and settings:
+The window title is the app's icon and name, with "SETTINGS · version" under it. Pages and settings:
 
 | Page | Setting | Control | Applies with |
 |---|---|---|---|
@@ -178,6 +179,7 @@ Newest first. One line each: what was decided, and why.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-15 | Settings windows say "SETTINGS" in small caps under their title | Nothing in the window said what it was for; the title-over-small-caps pattern is the one the manager already uses |
 | 2026-10-15 | One app's settings use the same `SettingsWindow` as the main settings: pages on the left, applied instantly, floating over the manager, sharing its size and place | Two different looks for "settings" felt inconsistent; one component keeps them identical and is what will move into the shared UI module |
 | 2026-10-15 | Settings rows keep their place when the data behind them changes (the models are counts, not arrays) | A live preview rebuilt the list on each keystroke and threw away the text box being typed into |
 | 2026-10-15 | Settings window footer: hairline, one hint line on the left, a quiet pill on the right | Reset looked like the main action and "Esc to close" read as a button |

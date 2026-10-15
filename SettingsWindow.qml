@@ -24,7 +24,11 @@ Item {
   id: win
 
   property string title: ""
+  // A small-caps line under the title that says what the window is for ("SETTINGS", maybe more).
+  property string subtitle: ""
   property string titleIcon: ""                  // a file path, or empty
+  // The title block and the page heading beside it share one height.
+  readonly property real headHeight: win.subtitle !== "" ? Style.space(48) : Style.space(40)
   property var pages: []
   property var values: ({})
   property string footerText: ""
@@ -132,7 +136,7 @@ Item {
       anchors.top: parent.top
       anchors.left: parent.left
       anchors.right: parent.right
-      height: Style.space(40)
+      height: win.headHeight
 
       Image {
         id: titleImage
@@ -147,17 +151,30 @@ Item {
         fillMode: Image.PreserveAspectFit
         asynchronous: true
       }
-      Text {
+      Column {
         anchors.left: titleImage.visible ? titleImage.right : parent.left
         anchors.leftMargin: titleImage.visible ? Style.spacing.md : 0
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
-        elide: Text.ElideRight
-        text: win.title
-        color: Color.foreground
-        font.family: Style.font.family
-        font.pixelSize: Style.font.body + 3
-        font.bold: true
+        Text {
+          width: parent.width
+          elide: Text.ElideRight
+          text: win.title
+          color: Color.foreground
+          font.family: Style.font.family
+          font.pixelSize: Style.font.body + 3
+          font.bold: true
+        }
+        Text {
+          visible: win.subtitle !== ""
+          width: parent.width
+          elide: Text.ElideRight
+          text: win.subtitle
+          color: Color.muted
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          font.letterSpacing: 1
+        }
       }
     }
 
@@ -224,7 +241,7 @@ Item {
     anchors.leftMargin: Style.spacing.lg * 2
     anchors.right: parent.right
     anchors.rightMargin: Style.spacing.lg
-    height: Style.space(40)
+    height: win.headHeight
     verticalAlignment: Text.AlignVCenter
     elide: Text.ElideRight
     text: win.searching ? "Search results" : (win.pages.length ? win.pages[Math.min(win.page, win.pages.length - 1)].title : "")
