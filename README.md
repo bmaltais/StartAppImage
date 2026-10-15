@@ -31,12 +31,12 @@ That is all. A few seconds after the shell loads, a **setup card** offers three 
 | Choice | What it does | Default |
 |---|---|---|
 | **App launcher entry** | Adds **StartAppImage** to your app launcher (SUPER + space) with its icon | On |
-| **Open `.AppImage` files** | Makes StartAppImage the program that opens them, so a double-click shows the install card | On, unless another app already opens them |
+| **Open `.AppImage` files** | Makes StartAppImage the program that opens them, so a double-click shows the install card | On, replacing any app that opens them today (it is remembered, see below) |
 | **Command line** | Links `~/.local/bin/startappimage` so you can use it in a terminal | On, unless that path is taken |
 
 Nothing changes until you press **Apply**, and **Not now** leaves everything as it was. The card appears once.
 
-- **Another app already opens AppImages?** The card names it ("Today these files open with *X*") and does not replace it unless you choose to. Switch the choice off later and *X* gets the files back.
+- **Another app already opens AppImages?** The card names it ("Today these files open with *X*"). StartAppImage takes over by default and remembers *X*; switch the choice off later, from the card or with `setup --handler false`, and *X* gets the files back. Pick **Keep X** on the card to leave it in charge from the start.
 - **Something else at `~/.local/bin/startappimage`?** It is left alone and the card says so.
 - **Change your mind.** The gear button in the manager (or `omarchy-shell io.github.bmaltais.startappimage setup`) reopens the card with what is on right now.
 

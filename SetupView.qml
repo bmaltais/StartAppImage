@@ -20,7 +20,8 @@ Item {
 
   implicitHeight: col.implicitHeight + Style.spacing.panelPadding * 2
 
-  // First time: sensible choices, but never replacing another app's role unasked.
+  // First time: everything on. Replacing another app's role is safe because the
+  // previous one is remembered and given back when this is switched off.
   // Afterwards: what is switched on right now.
   function load() {
     var i = view.integ
@@ -31,7 +32,7 @@ Item {
       view.cli = i.cli.state === "ours"
     } else {
       view.launcher = true
-      view.handler = !view.otherHandler
+      view.handler = true
       view.cli = !view.cliBlocked
     }
   }
@@ -111,7 +112,7 @@ Item {
       }
       Hint {
         text: view.otherHandler
-          ? "Today these files open with " + view.integ.handler.name + ". Choosing StartAppImage replaces it; switching this off later gives it back."
+          ? "Today these files open with " + view.integ.handler.name + ". StartAppImage will take over and remember it; switching this off later gives it back."
           : "Double-clicking an AppImage shows the install card."
       }
     }
