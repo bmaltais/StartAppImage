@@ -107,7 +107,7 @@ ShellRoot {
             : root.cancelled ? "Recording cancelled"
             : root.encoding ? "Recording finished"
             : root.state === "starting" ? "Getting ready to record the " + root.appTitle + " tour. Not recording yet."
-            : root.nested ? "Recording the " + root.appTitle + " tour. You can watch below. Your mouse and keyboard cannot reach it."
+            : root.nested ? "Recording the " + root.appTitle + " tour in a test session. Watch it below."
             : "Recording the " + root.appTitle + " tour"
         }
 
@@ -122,9 +122,9 @@ ShellRoot {
           lineHeight: 1.25
           text: root.mode === "confirm"
             ? "For about two minutes a script will drive the mouse pointer and the keyboard on a virtual screen.\n\nDO NOT TOUCH THE MOUSE OR THE KEYBOARD until this window says it is done. Whatever it changes is put back afterwards."
-            : root.done ? "You can use the mouse and the keyboard again."
-            : root.cancelled ? "Nothing was kept. The mouse and the keyboard are yours again."
-            : root.encoding ? "Building the GIF now. The mouse and the keyboard are yours again."
+            : root.done ? (root.nested ? "The recording is saved." : "You can use the mouse and the keyboard again.")
+            : root.cancelled ? (root.nested ? "Nothing was kept." : "Nothing was kept. The mouse and the keyboard are yours again.")
+            : root.encoding ? (root.nested ? "Building the animation now." : "Building the GIF now. The mouse and the keyboard are yours again.")
             : "DO NOT TOUCH THE MOUSE OR THE KEYBOARD.\nThe pointer is driving a virtual screen and typing goes there."
         }
 

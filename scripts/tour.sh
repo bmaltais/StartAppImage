@@ -6,7 +6,7 @@
 #
 #   TOURFILE    a bash file that defines the tour (see "Writing a tour" below), e.g. scripts/tours/hero.sh
 #   --install   copy the result to the tour's TOUR_OUT in the repo (default: leave it in $TMPDIR and say where)
-#   --yes       do not ask first (for when it is run from another script)
+#   --yes       do not ask first (for when it is run from another script); --nested never asks
 #   --nested    run the tour in a nested session shown in a window on your screen, instead of on a hidden virtual
 #               monitor: you can watch it, your mouse and keyboard cannot reach it, and it changes only a sandbox,
 #               never your real settings or files. See scripts/nested/session.sh and docs/recording-tours.md.
@@ -158,10 +158,12 @@ start_banner() {
   # Putting the window up moves focus to the real screen; the app must open on the virtual one.
   $NESTED || hyprctl dispatch "hl.dsp.focus({ monitor = \"$MON\" })" >/dev/null
 }
-if $ask; then
+# --nested needs no confirmation: it does not use your mouse or keyboard, changes nothing of yours, and shows a Cancel button.
+if $ask && ! $NESTED; then
   confirm || { echo "tour: cancelled, nothing was changed." >&2; rm -rf "$TMP"; exit 0; }
 fi
-echo "tour: recording. Leave the mouse and keyboard alone until it says it is done." >&2
+if $NESTED; then echo "tour: recording in a test session (your mouse and keyboard are free; Cancel recording stops it)." >&2
+else echo "tour: recording. Leave the mouse and keyboard alone until it says it is done." >&2; fi
 
 # ---- proving a nested tour touched nothing of yours ----------------------------------------------------
 # A fingerprint of each TOUR_REAL_UNCHANGED path: file name, size and modification time. Taken before the sandbox exists and
@@ -206,7 +208,10 @@ release() {
   [[ -n $bg_pid ]] && kill "$bg_pid" 2>/dev/null
   if $NESTED; then
     # Only the sandbox was changed, and it is thrown away with the session: nothing of yours to put back.
+    nested_view_close
+    rm -f "$TMP/view.live"
     nested_stop
+    nested_far_down
   else
     if declare -F tour_restore >/dev/null; then tour_restore; fi
     hyprctl output remove $MON >/dev/null 2>&1
@@ -245,10 +250,14 @@ if $NESTED; then
   sandbox_build || exit 1
   sandbox_enter
   if declare -F tour_prepare >/dev/null; then tour_prepare; fi
+  FAR_MON=TOURTEST
+  nested_far_up
   nested_start || exit 1
-  nested_place "$prev_focus"
+  nested_send_away "$prev_focus"
   start_banner
   nested_wait_ready
+  echo live >"$TMP/view.live"
+  nested_view_open "$TMP/view.live" || exit 1
   nested_enter
   CAPMON=$NMON
   # The nested shell draws the theme's wallpaper, so it looks like a real Omarchy desktop. TOUR_BACKDROP=plain

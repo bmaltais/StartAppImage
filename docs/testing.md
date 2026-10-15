@@ -92,7 +92,7 @@ scripts/dev ──► scripts/nested/session.sh ──► Hyprland (nested) ─�
 
 Each of these cost a round of testing; they are why the design is what it is.
 
-- **Never put the nested compositor's window under a real pointer.** While a pointer is over it, the nested compositor chooses the cursor image: it hid the pointer, showed a hand, and left the pointer behaving oddly after a window drag. A transparent *shield* over the window cured the input but showed a "block" cursor and stopped the window being dragged, since it is a separate overlay. Hence the far monitor for the session and the separate view window for watching. (The recorder's `--nested` window is on your screen by request; it has the same pointer caveat, see recording-tours.md.)
+- **Never put the nested compositor's window under a real pointer.** While a pointer is over it, the nested compositor chooses the cursor image: it hid the pointer, showed a hand, and left the pointer behaving oddly after a window drag. A transparent *shield* over the window cured the input but showed a "block" cursor and stopped the window being dragged, since it is a separate overlay. Hence the far monitor for the session and the separate view window for watching. The recorder's `--nested` mode uses the same far monitor and view window.
 - **Do not change the nested compositor's cursor options at runtime** (`hl.config({ cursor = ... })` through `hyprctl eval`): it crashed the nested Hyprland.
 - **A reused socket name hid the session.** The nested compositor's socket is `wayland-N` and the number is reused, so finding "the new socket" by a name that was absent before failed after an aborted cleanup left a stale file. It is found by being created after the start, and `down` removes its own socket and instance folder.
 - **`pgrep -f` matches its own shell.** A pattern passed to `pgrep -f` in a command line also matches that command line. Find processes by an environment marker (`procs_with` in `scripts/dev`) or use a `[x]` bracket pattern.
@@ -106,7 +106,7 @@ Each of these cost a round of testing; they are why the design is what it is.
 - **One session at a time** (a fixed state folder and monitor name).
 - **The view window is a picture, not the session**: five frames a second, so a fast animation looks choppy, and the cursor of the session is whatever the screenshot has in it.
 - **`dev click` has no hover, drag or scroll.** `vptr` can drag (the recorder uses it); `dev` could expose `drag` and `scroll`.
-- **Ideas:** a `dev run SCRIPT` that replays a list of steps and fails on the first miss (a smoke test for CI-less checking); `dev shot --diff` against the last shot; installing `wl-mirror` or a Quickshell `ScreencopyView` would replace the five-frames-a-second picture with a live one; the recorder's `--nested` window could use the same far-monitor-plus-view approach to stop its pointer caveat.
+- **Ideas:** a `dev run SCRIPT` that replays a list of steps and fails on the first miss (a smoke test for CI-less checking); `dev shot --diff` against the last shot; installing `wl-mirror` or a Quickshell `ScreencopyView` would replace the five-frames-a-second picture with a live one.
 
 ## Where the files are
 

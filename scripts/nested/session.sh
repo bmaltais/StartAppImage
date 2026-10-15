@@ -26,14 +26,10 @@ NMON=""
 NW=0
 NH=0
 VPTR=$NEST_BIN/vptr
-# The status strip (scripts/tour-banner.qml) sits NEST_STRIP_GAP pixels from the top of the monitor and is NEST_STRIP_H high;
-# the nested window goes below it, clear of the strip and of its own title bar (NEST_TITLEBAR, which Hyprland draws above
-# the window's position). They are worked out from these, never typed twice, so they cannot drift apart.
+# The status strip (scripts/tour-banner.qml) sits NEST_STRIP_GAP pixels from the top of your monitor and is NEST_STRIP_H high; the
+# view window (nested_view_open) is centred below it.
 NEST_STRIP_GAP=24
 NEST_STRIP_H=170
-NEST_TITLEBAR=30
-NEST_BELOW=10
-NEST_TOP=$((NEST_STRIP_GAP + NEST_STRIP_H + NEST_BELOW + NEST_TITLEBAR))
 
 real() { env HYPRLAND_INSTANCE_SIGNATURE="$REAL_SIG" WAYLAND_DISPLAY="$REAL_WD" "$@"; }
 
@@ -169,22 +165,61 @@ CONF
   NEST_ADDR=$addr
 }
 
-# Size and place the window, and hand the real keyboard back to what had it.
-nested_place() { # PREVIOUS_FOCUS_ADDRESS
-  local mx my mw
-  local mh
-  read -r mx my mw mh < <(real hyprctl monitors -j | jq -r --arg m "$orig_mon" '.[] | select(.name == $m) | "\(.x) \(.y) \(.width) \(.height)"')
-  if (( mh < NEST_TOP + H + 8 )); then
-    echo "tour: the monitor is ${mh}px high; the nested window (${H}px) plus its status strip needs $((NEST_TOP + H + 8))px. They will overlap by $((NEST_TOP + H + 8 - mh))px at the bottom." >&2
-  fi
-  real hyprctl dispatch "hl.dsp.window.resize({ x = $W, y = $H, exact = true, window = \"address:$NEST_ADDR\" })" >/dev/null
-  real hyprctl dispatch "hl.dsp.window.move({ x = $((mx + (mw - W) / 2)), y = $((my + NEST_TOP)), exact = true, window = \"address:$NEST_ADDR\" })" >/dev/null
-  [[ -n ${1:-} ]] && real hyprctl dispatch "hl.dsp.focus({ window = \"address:$1\" })" >/dev/null
-  # Handing the keyboard back raised that window over this one: put this one on top again. It is an ordinary window after that:
-  # drag it, cover it, send it to the scratchpad; the nested session does not notice.
-  real hyprctl dispatch "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"address:$NEST_ADDR\" })" >/dev/null
-  sleep 1
+# ---- keeping the session's window out of reach, and watching it through a view window -----------------------
+# The nested compositor's window must never sit under a real pointer: while the pointer is over it, the nested compositor chooses the
+# cursor image (hidden, a hand, ...). So the window lives on a virtual monitor 20,000 px to the right, which a real pointer cannot
+# reach, and what you watch is a separate view-only window showing screenshots of it.
+FAR_MON=${FAR_MON:-DEVTEST}
+FAR_X=${FAR_X:-20000}
+
+nested_far_up() {
+  real hyprctl output create headless "$FAR_MON" >/dev/null
+  real hyprctl eval "hl.monitor({ output = \"$FAR_MON\", mode = \"${W}x${H}@60\", position = \"${FAR_X}x0\", scale = 1 })" >/dev/null
+  sleep 0.8
 }
+nested_far_down() { real hyprctl output remove "$FAR_MON" >/dev/null 2>&1 || true; }
+
+# The window goes to the far monitor at the session's own size, and the real keyboard goes back to what had it.
+nested_send_away() { # [PREVIOUS_FOCUS_ADDRESS]
+  real hyprctl dispatch "hl.dsp.window.resize({ x = $W, y = $H, exact = true, window = \"address:$NEST_ADDR\" })" >/dev/null
+  real hyprctl dispatch "hl.dsp.window.move({ monitor = \"$FAR_MON\", window = \"address:$NEST_ADDR\" })" >/dev/null
+  real hyprctl dispatch "hl.dsp.window.move({ x = $FAR_X, y = 0, exact = true, window = \"address:$NEST_ADDR\" })" >/dev/null
+  # The taskbar lists this window, and a click there asks the compositor to focus it, which moves the pointer onto a monitor nobody can
+  # reach: the pointer disappears. A window that refuses focus cannot be clicked to there.
+  real hyprctl dispatch "hl.dsp.window.set_prop({ prop = \"no_focus\", value = \"1\", window = \"address:$NEST_ADDR\" })" >/dev/null
+  real hyprctl dispatch "hl.dsp.window.set_prop({ prop = \"no_follow_mouse\", value = \"1\", window = \"address:$NEST_ADDR\" })" >/dev/null
+  [[ -n ${1:-} ]] && real hyprctl dispatch "hl.dsp.focus({ window = \"address:$1\" })" >/dev/null
+  return 0
+}
+
+# Processes that carry a given variable=value in their environment.
+procs_with() { local p; for p in /proc/[0-9]*; do p=${p#/proc/}; [[ $p != "$$" && -r /proc/$p/environ ]] || continue
+  tr '\0' '\n' </proc/"$p"/environ 2>/dev/null | grep -qx "$1" && echo "$p"; done 2>/dev/null || true; }
+
+# A view-only window on your screen showing the session five times a second (scripts/dev-view.qml). Drag it, cover it, resize it: your
+# pointer is the normal arrow over it and nothing in it listens. The picture loop runs while the file LIVE_FILE is not empty.
+nested_view_open() { # LIVE_FILE
+  local live=$1 frame=$NEST/frame.jpg addr="" i ws mx my mw mh
+  [[ -z $(procs_with "NEST_VIEW=1") ]] || return 0
+  WAYLAND_DISPLAY=$NWD grim -t jpeg -q 75 "$frame" || { echo "tour: grim could not capture the session" >&2; return 1; }
+  # Written to a temporary name and renamed so the window never reads half a file.
+  setsid -f env NEST_VIEW=1 bash -c 'while [[ -s $2 ]]; do WAYLAND_DISPLAY=$1 grim -t jpeg -q 75 "$3.new" 2>/dev/null && mv -f "$3.new" "$3"; sleep 0.2; done' _ "$NWD" "$live" "$frame"
+  setsid -f env NEST_VIEW=1 DEV_FRAME="$frame" HOME="$REAL_HOME" XDG_CONFIG_HOME="$REAL_HOME/.config" XDG_DATA_HOME="$REAL_HOME/.local/share" XDG_STATE_HOME="$REAL_HOME/.local/state" XDG_CACHE_HOME="$REAL_HOME/.cache" \
+    WAYLAND_DISPLAY="$REAL_WD" HYPRLAND_INSTANCE_SIGNATURE="$REAL_SIG" quickshell -n -p "$HERE/dev-view.qml" >/dev/null 2>&1
+  for i in $(seq 1 20); do
+    addr=$(real hyprctl clients -j | jq -r '[.[] | select(.title | test("view only"))][0].address // empty')
+    [[ -n $addr ]] && break
+    sleep 0.25
+  done
+  [[ -n $addr ]] || { echo "tour: the view window did not open" >&2; return 1; }
+  # It opens on the focused monitor, which may be the far one: put it on yours, centred.
+  read -r ws mx my mw mh < <(real hyprctl monitors -j | jq -r --arg far "$FAR_MON" '[.[] | select(.name != $far)] | (map(select(.focused))[0] // .[0]) | "\(.activeWorkspace.id) \(.x) \(.y) \(.width) \(.height)"')
+  real hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = false, window = \"address:$addr\" })" >/dev/null
+  real hyprctl dispatch "hl.dsp.window.resize({ x = 960, y = 600, exact = true, window = \"address:$addr\" })" >/dev/null
+  real hyprctl dispatch "hl.dsp.window.move({ x = $((mx + (mw - 960) / 2)), y = $((my + (mh - 600) / 2)), exact = true, window = \"address:$addr\" })" >/dev/null
+  real hyprctl dispatch "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"address:$addr\" })" >/dev/null
+}
+nested_view_close() { local p; for p in $(procs_with "NEST_VIEW=1"); do kill "$p" 2>/dev/null || true; done; }
 
 nested_wait_ready() {
   local i

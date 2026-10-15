@@ -25,17 +25,9 @@ icons() {
   [[ -z $hits ]] || { echo "empty iconText (an icon lost its glyph; write icons as \\uXXXX escapes):"; echo "$hits"; return 1; }
 }
 
-# The nested recorder takes its window geometry from one place; a literal copy elsewhere would drift.
-no_stray_geometry() {
-  local hits
-  hits=$(grep -nE 'NEST_TOP=[0-9]' scripts/nested/session.sh scripts/tour.sh || true)
-  [[ -z $hits ]] || { echo "NEST_TOP must be computed from the strip's size, not a number:"; echo "$hits"; return 1; }
-}
-
 step "shell scripts (bash -n, shellcheck)" scripts/lint-sh.sh
 step "QML (qmllint, new warnings only)" scripts/lint-qml.py
 if command -v omarchy >/dev/null; then step "plugin manifest (omarchy plugin validate)" omarchy plugin validate .
 else echo "  skip  plugin manifest (omarchy is not installed here)"; fi
 step "QML icons (no empty iconText)" icons
-step "recorder geometry (computed, not typed)" no_stray_geometry
 exit $fail

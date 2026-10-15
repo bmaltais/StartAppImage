@@ -67,10 +67,6 @@ overlay_up() { HYPRLAND_INSTANCE_SIGNATURE=$NSIG hyprctl layers -j | jq -e '[.. 
 shell_up() { [[ $(nenv omarchy-shell shell ping 2>/dev/null) == ok ]]; }
 wait_shell() { local i; for i in $(seq 1 60); do shell_up && return 0; sleep 0.5; done; return 1; }
 
-# Processes that carry a given variable=value in their environment.
-procs_with() { local p; for p in /proc/[0-9]*; do p=${p#/proc/}; [[ $p != "$$" && -r /proc/$p/environ ]] || continue
-  tr '\0' '\n' </proc/"$p"/environ 2>/dev/null | grep -qx "$1" && echo "$p"; done 2>/dev/null || true; }
-
 noise='recursive rearrange|Local plugin changed|qt\.svg|IpcHandler|ShellIpc|Handler was registered|qmlscanner|DEBUG|atspi|portal'
 plugin_errors() { # prints the plugin's logged errors, one per line
   [[ -f $NEST/qs.log ]] || return 0
@@ -78,17 +74,6 @@ plugin_errors() { # prints the plugin's logged errors, one per line
     grep -E "io\.github\.bmaltais\.startappimage" |
     grep -E "WARN|ERROR|ReferenceError|TypeError|Unable to assign|Cannot (assign|read|call)|is not a type|is not defined|failed|Read of" |
     grep -vE "$noise" | sort -u || true
-}
-
-# The window goes to the far virtual monitor, out of a real pointer's reach, at the session's own size.
-send_window_away() {
-  real hyprctl dispatch "hl.dsp.window.resize({ x = $W, y = $H, exact = true, window = \"address:$NEST_ADDR\" })" >/dev/null
-  real hyprctl dispatch "hl.dsp.window.move({ monitor = \"$FAR_MON\", window = \"address:$NEST_ADDR\" })" >/dev/null
-  real hyprctl dispatch "hl.dsp.window.move({ x = $FAR_X, y = 0, exact = true, window = \"address:$NEST_ADDR\" })" >/dev/null
-  # The taskbar lists this window, and a click there asks the compositor to focus it, which moves the pointer onto a monitor nobody can
-  # reach: the pointer disappears. A window that refuses focus cannot be clicked to there.
-  real hyprctl dispatch "hl.dsp.window.set_prop({ prop = \"no_focus\", value = \"1\", window = \"address:$NEST_ADDR\" })" >/dev/null
-  real hyprctl dispatch "hl.dsp.window.set_prop({ prop = \"no_follow_mouse\", value = \"1\", window = \"address:$NEST_ADDR\" })" >/dev/null
 }
 
 cmd_up() {
@@ -102,14 +87,11 @@ cmd_up() {
   local prev_focus
   prev_focus=$(hyprctl activewindow -j | jq -r '.address // empty')
   # The far monitor first, so the window can be sent there the moment it exists.
-  hyprctl output create headless "$FAR_MON" >/dev/null
-  hyprctl eval "hl.monitor({ output = \"$FAR_MON\", mode = \"${W}x${H}@60\", position = \"${FAR_X}x0\", scale = 1 })" >/dev/null
-  sleep 0.8
+  nested_far_up
   sandbox_build || exit 1
   sandbox_enter
   NEST_DETACH=1 nested_start || exit 1
-  send_window_away
-  [[ -n $prev_focus ]] && real hyprctl dispatch "hl.dsp.focus({ window = \"address:$prev_focus\" })" >/dev/null
+  nested_send_away "$prev_focus"
   nested_wait_ready
   # Ends the session when its close file appears, or after DEV_TTL seconds: it must not be left running.
   setsid -f env DEV_WATCHER=1 bash -c 'for ((i = 0; i < $3 * 2; i++)); do [[ -s $1 ]] && break; sleep 0.5; done; exec "$2" down >/dev/null 2>&1' _ "$DEV/close" "$SELF" "$TTL"
@@ -119,32 +101,13 @@ cmd_up() {
 
 cmd_watch() {
   load
-  [[ -z $(procs_with "DEV_VIEW=1") ]] || { echo "dev watch: already open (dev unwatch closes it)"; return 0; }
-  local frame=$DEV/frame.jpg
-  WAYLAND_DISPLAY=$NWD grim -t jpeg -q 75 "$frame" || die "grim could not capture the session"
-  # Five pictures a second, written to a temporary name and renamed so the window never reads half a file; it ends with the session.
-  setsid -f env DEV_VIEW=1 bash -c 'while [[ -s $2 ]]; do WAYLAND_DISPLAY=$1 grim -t jpeg -q 75 "$3.new" 2>/dev/null && mv -f "$3.new" "$3"; sleep 0.2; done' _ "$NWD" "$STATE" "$frame"
-  setsid -f env DEV_VIEW=1 DEV_FRAME="$frame" HOME="$REAL_HOME" XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$REAL_HOME/.config}" \
-    WAYLAND_DISPLAY="$REAL_WD" HYPRLAND_INSTANCE_SIGNATURE="$REAL_SIG" quickshell -n -p "$HERE/dev-view.qml" >/dev/null 2>&1
-  # It opens on the focused monitor, which is not necessarily yours (the session's virtual monitor can hold focus): put it on yours.
-  local addr="" i ws mx my mw mh
-  for i in $(seq 1 20); do
-    addr=$(real hyprctl clients -j | jq -r '[.[] | select(.title | test("view only"))][0].address // empty')
-    [[ -n $addr ]] && break
-    sleep 0.25
-  done
-  [[ -n $addr ]] || die "the view window did not open"
-  read -r ws mx my mw mh < <(real hyprctl monitors -j | jq -r --arg far "$FAR_MON" '[.[] | select(.name != $far)] | (map(select(.focused))[0] // .[0]) | "\(.activeWorkspace.id) \(.x) \(.y) \(.width) \(.height)"')
-  real hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = false, window = \"address:$addr\" })" >/dev/null
-  real hyprctl dispatch "hl.dsp.window.resize({ x = 960, y = 600, exact = true, window = \"address:$addr\" })" >/dev/null
-  real hyprctl dispatch "hl.dsp.window.move({ x = $((mx + (mw - 960) / 2)), y = $((my + (mh - 600) / 2)), exact = true, window = \"address:$addr\" })" >/dev/null
-  real hyprctl dispatch "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"address:$addr\" })" >/dev/null
+  nested_view_open "$STATE" || exit 1
   echo "dev watch: view window open on your screen (view only; dev unwatch closes it)"
 }
 
 cmd_unwatch() {
   local p
-  for p in $(procs_with "DEV_VIEW=1"); do kill "$p" 2>/dev/null || true; done
+  nested_view_close
   echo "dev unwatch: view window closed"
 }
 
@@ -152,9 +115,9 @@ cmd_down() {
   [[ -s $STATE ]] || { hyprctl output remove "$FAR_MON" >/dev/null 2>&1 || true; echo "dev down: no session"; return 0; }
   source "$STATE"
   nest_pid=detached
-  for p in $(procs_with "DEV_VIEW=1"); do kill "$p" 2>/dev/null || true; done
+  nested_view_close
   nested_stop
-  hyprctl output remove "$FAR_MON" >/dev/null 2>&1 || true
+  nested_far_down
   rm -rf "$DEV"
   echo "dev down: session ended"
 }
