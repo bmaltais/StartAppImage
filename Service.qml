@@ -518,7 +518,8 @@ Item {
     property real dragY: 0
     // Where the card was last left is remembered across restarts (see `startappimage window`);
     // opening it again puts it back, kept on the screen in case the screen has changed.
-    onVisibleChanged: if (visible) win.moveBy(0, 0)
+    // (The window has no size until it is shown, so the check waits for one.)
+    onHeightChanged: if (visible) win.moveBy(0, 0)
 
     function saveWindow(withSize) {
       var args = [root.cli, "window", "--offset", Math.round(win.dragX) + "," + Math.round(win.dragY)]
@@ -545,6 +546,7 @@ Item {
     }
     // Keeps the card on the screen: at least the top strip stays reachable.
     function moveBy(dx, dy) {
+      if (win.width <= 0 || win.height <= 0) return
       var grab = Style.space(60)
       var maxX = (win.width + frame.width) / 2 - grab
       var minY = -(win.height - frame.height) / 2
