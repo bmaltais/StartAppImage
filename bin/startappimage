@@ -1,0 +1,569 @@
+#!/usr/bin/env bash
+# StartAppImage - install, list, update and remove AppImages with desktop integration.
+set -euo pipefail
+
+LEGACY_APP_DIR="$HOME/.local/share/appimages"
+CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/startappimage/config"
+cfg_get() { sed -n "s/^$1=//p" "$CONFIG_FILE" 2>/dev/null | head -n1 || true; }
+cfg_set() {
+  mkdir -p "$(dirname "$CONFIG_FILE")"
+  { grep -v "^$1=" "$CONFIG_FILE" 2>/dev/null || true; echo "$1=$2"; } >"$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+}
+# Where new installs go: the folder last chosen with --dir, else the legacy default.
+APP_DIR="${STARTAPPIMAGE_DIR:-$(cfg_get INSTALL_DIR)}"
+APP_DIR="${APP_DIR:-$LEGACY_APP_DIR}"
+DESKTOP_DIR="$HOME/.local/share/applications"
+ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+BIN_DIR="$HOME/.local/bin"
+DB_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/startappimage"
+PLUGIN_ID="io.github.bmaltais.startappimage"
+
+die() { echo "startappimage: $*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null || die "missing dependency: $1"; }
+
+usage() {
+  cat <<EOF
+Usage: startappimage <command> [args]
+
+  add <file|url|github:owner/repo> [name] [--dir <folder>]
+                                            Install and integrate an AppImage (--dir picks the
+                                            folder and remembers it for next time)
+  locations                                 JSON: the default install folder and known folders
+  config <name>                             JSON: one app's settings
+  set <name> [--name N] [--dir D] [--args A] [--source S] [--hidden true|false]
+                                            Change an app's settings
+  list [--json]                             List installed AppImages
+  update [name]                             Update one or all (github-sourced) AppImages
+  check [--json]                            Report available updates without installing
+  remove <name>                             Uninstall and clean up integration files
+  open <file>                               Install window for a file (used by file managers)
+  ui                                        Open the manager window (installed apps, uninstall)
+  info <file>                               Print JSON metadata for an AppImage
+  run <file>                                Run an AppImage without installing
+  register                                  Make StartAppImage the default handler for .AppImage files
+  unregister                                Undo register (installed apps are left alone)
+  help                                      Show this help
+EOF
+}
+
+slug() { tr '[:upper:] ' '[:lower:]-' <<<"$1" | tr -cd 'a-z0-9._-'; }
+
+# --- manifest: simple KEY=value files, one per app -----------------------------
+db_get() { sed -n "s/^$2=//p" "$DB_DIR/$1.env" | head -n1; }
+db_write() { # id name source version [KEY=value ...]
+  local id=$1 name=$2 source=$3 version=$4
+  shift 4
+  mkdir -p "$DB_DIR"
+  {
+    printf 'NAME=%s\nSOURCE=%s\nVERSION=%s\n' "$name" "$source" "$version"
+    if (( $# )); then printf '%s\n' "$@"; fi
+  } >"$DB_DIR/$id.env"
+}
+# Where an app's AppImage lives: adopted apps keep theirs where it was found.
+app_exec() { local e; e=$(db_get "$1" EXEC); echo "${e:-$LEGACY_APP_DIR/$1.AppImage}"; }
+
+# --- apps installed outside StartAppImage ---------------------------------------
+# Launcher entries that point at an .AppImage are adopted into the manifest
+# (EXTERNAL=1), so Open and Uninstall work on them like on any other app.
+desktop_exec_path() { # desktop file -> the AppImage it launches, if it exists
+  local line p
+  line=$(sed -n 's/^Exec=//p' "$1" | head -n1)
+  if [[ $line == \"* ]]; then p=${line#\"}; p=${p%%\"*}; else p=${line%% *}; fi
+  if [[ ${p,,} == *.appimage && -f "$p" ]]; then echo "$p"; fi
+}
+
+find_icon() { # icon name or path -> a file path, or nothing
+  local n=$1
+  [[ -n "$n" ]] || return 0
+  if [[ $n == /* ]]; then [[ ! -f "$n" ]] || echo "$n"; return 0; fi
+  find "$HOME/.local/share/icons" "$HOME/.local/share/pixmaps" \( -name "$n.png" -o -name "$n.svg" \) 2>/dev/null | sort -V | tail -n1 || true
+}
+
+sync_external() {
+  shopt -s nullglob
+  local f d id path name icon version known exe
+  for f in "$DB_DIR"/*.env; do # forget adopted apps whose file is gone
+    id=$(basename "$f" .env)
+    if [[ "$(db_get "$id" EXTERNAL)" == 1 ]]; then
+      exe=$(db_get "$id" EXEC)
+      [[ -f "$exe" ]] || rm -f "$f"
+    fi
+  done
+  for d in "$DESKTOP_DIR"/*.desktop; do
+    case "$(basename "$d")" in startappimage*) continue ;; esac
+    path=$(desktop_exec_path "$d")
+    [[ -n "$path" ]] || continue
+    path=$(realpath "$path")
+    known=0
+    for f in "$DB_DIR"/*.env; do
+      id=$(basename "$f" .env)
+      if [[ "$(realpath -m "$(app_exec "$id")")" == "$path" ]]; then known=1; break; fi
+    done
+    [[ $known -eq 0 ]] || continue
+    name=$(sed -n 's/^Name=//p' "$d" | head -n1)
+    id=$(slug "$name"); [[ -n "$id" ]] || id=$(slug "$(basename "$d" .desktop)")
+    [[ ! -f "$DB_DIR/$id.env" ]] || id="$id-ext"
+    version=$(sed -n 's/^X-AppImage-Version=//p' "$d" | head -n1)
+    [[ -n "$version" ]] || version=$(basename "$path" | grep -oE '[0-9]+(\.[0-9]+)+' | head -n1 || true)
+    icon=$(find_icon "$(sed -n 's/^Icon=//p' "$d" | head -n1)")
+    db_write "$id" "${name:-$id}" external "${version:-local}" EXTERNAL=1 "EXEC=$path" "DESKTOP=$d" "ICON=$icon"
+  done
+}
+
+# --- github helpers ------------------------------------------------------------
+gh_latest() { # owner/repo -> "tag<TAB>asset_url"
+  local arch; arch=$(uname -m)
+  curl -fsSL "https://api.github.com/repos/$1/releases/latest" | jq -r --arg a "$arch" '
+    .tag_name as $t
+    | ([.assets[] | select(.name | test("\\.AppImage$"; "i"))]
+       | (map(select(.name | test($a; "i"))) | first) // first) as $x
+    | "\($t)\t\($x.browser_download_url // "")"'
+}
+
+# --- metadata ------------------------------------------------------------------
+# extract_meta <appimage> <tmpdir> [fallback-name]
+# Sets M_NAME M_COMMENT M_CATS M_ICON (path or empty). Runs the AppImage only with --appimage-extract.
+extract_meta() {
+  local file=$1 tmp=$2 fallback=${3:-} root desktop icon_name run=$1
+  root="$tmp/squashfs-root"
+  if [[ ! -x "$file" ]]; then # never chmod the user's own file; work on a copy
+    run="$tmp/app.AppImage"; cp --reflink=auto "$file" "$run"; chmod +x "$run"
+  fi
+  # Pull out only the metadata: a full extraction of a 300 MB app is slow.
+  ( cd "$tmp" && "$run" --appimage-extract '*.desktop' >/dev/null 2>&1 && "$run" --appimage-extract '.DirIcon' >/dev/null 2>&1 ) || true
+  desktop=$(find "$root" -maxdepth 1 -name '*.desktop' 2>/dev/null | head -n1 || true)
+  if [[ -z "$desktop" ]]; then
+    ( cd "$tmp" && "$run" --appimage-extract >/dev/null 2>&1 ) || die "not a valid AppImage (extraction failed)"
+    desktop=$(find "$root" -maxdepth 1 -name '*.desktop' 2>/dev/null | head -n1 || true)
+  fi
+  M_NAME=$fallback M_COMMENT="" M_CATS="Utility;" M_ICON="" M_VERSION=""
+  if [[ -n "$desktop" ]]; then
+    M_NAME=$(sed -n 's/^Name=//p' "$desktop" | head -n1); M_NAME=${M_NAME:-$fallback}
+    M_CATS=$(sed -n 's/^Categories=//p' "$desktop" | head -n1); M_CATS=${M_CATS:-Utility;}
+    M_COMMENT=$(sed -n 's/^Comment=//p' "$desktop" | head -n1)
+    M_VERSION=$(sed -n 's/^X-AppImage-Version=//p' "$desktop" | head -n1)
+    icon_name=$(sed -n 's/^Icon=//p' "$desktop" | head -n1)
+    ( cd "$tmp" && "$run" --appimage-extract "$icon_name.*" >/dev/null 2>&1; "$run" --appimage-extract 'usr/share/icons/*' >/dev/null 2>&1 ) || true
+    M_ICON=$(find "$root" -maxdepth 1 \( -name "$icon_name.png" -o -name "$icon_name.svg" \) | head -n1 || true)
+    [[ -n "$M_ICON" ]] || M_ICON=$(find "$root/usr/share/icons" -name "$icon_name.png" 2>/dev/null | sort -V | tail -n1 || true)
+  fi
+  [[ -n "$M_ICON" ]] || M_ICON=$(readlink -f "$root/.DirIcon" 2>/dev/null || true)
+  [[ -f "$M_ICON" ]] || M_ICON=""
+}
+
+# info <file>: JSON preview for the install window (icon is copied to the cache dir).
+cmd_info() {
+  [[ $# -eq 1 && -f "$1" ]] || die "info: missing file"
+  need jq
+  local tmp cache="${XDG_CACHE_HOME:-$HOME/.cache}/startappimage" icon="" id installed=false
+  tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+  extract_meta "$1" "$tmp" "$(basename "$1" .AppImage)"
+  if [[ -n "$M_ICON" ]]; then
+    mkdir -p "$cache"; icon="$cache/preview-$$.${M_ICON##*.}"; cp "$M_ICON" "$icon"
+  fi
+  sync_external
+  id=$(slug "$M_NAME"); [[ -f "$DB_DIR/$id.env" ]] && installed=true
+  jq -nc --arg name "$M_NAME" --arg comment "$M_COMMENT" --arg cats "$M_CATS" --arg icon "$icon" \
+    --arg version "$M_VERSION" --arg size "$(du -h "$1" | cut -f1)" --arg path "$(realpath "$1")" --arg id "$id" \
+    --arg installedVersion "$([[ $installed == true ]] && db_get "$id" VERSION || true)" \
+    --arg installedDir "$([[ $installed == true ]] && dirname "$(app_exec "$id")" || true)" --argjson installed "$installed" \
+    '{name:$name,comment:$comment,categories:$cats,icon:$icon,version:$version,size:$size,path:$path,id:$id,installed:$installed,installedVersion:$installedVersion,installedDir:$installedDir}'
+}
+
+# run <file|id>: run an AppImage file, or an installed app by id.
+cmd_run() {
+  local t=${1:-}
+  [[ -f "$t" ]] || t=$(app_exec "$(slug "$t")")
+  [[ -f "$t" ]] || die "run: no such file or installed app: ${1:-}"
+  chmod +x "$t"; exec "$(realpath "$t")"
+}
+
+# --- add -----------------------------------------------------------------------
+cmd_add() {
+  local dest="$APP_DIR" remember=0 args=()
+  while (( $# )); do
+    case "$1" in
+      --dir) [[ $# -ge 2 ]] || die "add: --dir needs a folder"; dest=$2; remember=1; shift 2 ;;
+      --dir=*) dest=${1#--dir=}; remember=1; shift ;;
+      *) args+=("$1"); shift ;;
+    esac
+  done
+  set -- ${args[@]+"${args[@]}"}
+  [[ $# -ge 1 ]] || die "add: missing source"
+  dest=${dest/#\~/$HOME}; dest=${dest%/}
+  [[ "$dest" == "$HOME"/* ]] || die "the install folder must be inside your home directory: $dest"
+  need curl
+  local src="$1" name="${2:-}" explicit="${2:-}" tmp file version="local" source_rec="local"
+  tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+
+  case "$src" in
+    github:*)
+      need jq
+      local repo=${src#github:} tag url
+      IFS=$'\t' read -r tag url < <(gh_latest "$repo")
+      [[ -n "$url" ]] || die "no AppImage asset in latest release of $repo"
+      file="$tmp/download.AppImage"; echo "Downloading $url"
+      curl -fL --progress-bar -o "$file" "$url"
+      version=$tag; source_rec="github:$repo"
+      [[ -n "$name" ]] || name=${repo#*/} ;;
+    http://*|https://*)
+      file="$tmp/download.AppImage"; curl -fL --progress-bar -o "$file" "$src"
+      source_rec="url:$src"; [[ -n "$name" ]] || name=$(basename "${src%%\?*}" .AppImage) ;;
+    *)
+      [[ -f "$src" ]] || die "no such file: $src"
+      file="$tmp/download.AppImage"; cp "$src" "$file"
+      [[ -n "$name" ]] || name=$(basename "$src" .AppImage) ;;
+  esac
+  chmod +x "$file"
+
+  echo "Reading application metadata..."
+  extract_meta "$file" "$tmp" "$name"
+  local display=$M_NAME comment=$M_COMMENT cats=$M_CATS icon_src=$M_ICON
+  [[ $version != local || -z "$M_VERSION" ]] || version=$M_VERSION
+  [[ -n "$explicit" ]] || name=$display
+
+  local id; id=$(slug "$name")
+  [[ -n "$id" ]] || id=$(slug "$(basename "$src" .AppImage)")
+  [[ -n "$id" ]] || die "could not derive a name; pass one explicitly"
+  echo "Installing to $dest..."
+  # Installing again into a different folder moves the app: clear the old copy first.
+  if [[ -f "$DB_DIR/$id.env" && "$(app_exec "$id")" != "$dest/$id.AppImage" ]]; then
+    cmd_remove "$id" >/dev/null
+  fi
+  mkdir -p "$dest" "$DESKTOP_DIR" "$ICON_DIR" "$BIN_DIR"
+
+  mv "$file" "$dest/$id.AppImage"
+  ln -sf "$dest/$id.AppImage" "$BIN_DIR/$id"
+
+  local icon_ref="application-x-executable"
+  if [[ -f "$icon_src" ]]; then
+    local ext=${icon_src##*.}; [[ $ext == svg ]] || ext=png
+    if [[ $ext == svg ]]; then
+      mkdir -p "$HOME/.local/share/icons/hicolor/scalable/apps"
+      cp "$icon_src" "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage-$id.svg"
+    else
+      cp "$icon_src" "$ICON_DIR/startappimage-$id.png"
+    fi
+    icon_ref="startappimage-$id"
+  fi
+
+  cat >"$DESKTOP_DIR/startappimage-$id.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=$display
+Comment=$comment
+Exec="$dest/$id.AppImage" %U
+Icon=$icon_ref
+Categories=$cats
+Terminal=false
+X-StartAppImage=$id
+EOF
+  db_write "$id" "$display" "$source_rec" "$version" "EXEC=$dest/$id.AppImage"
+  [[ $remember -eq 0 ]] || cfg_set INSTALL_DIR "$dest"
+  command -v update-desktop-database >/dev/null && update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  echo "Installed $display ($id)"
+}
+
+# --- per-app settings --------------------------------------------------------------
+db_set() { # id KEY value: replace or add one line of an app's manifest
+  local f="$DB_DIR/$1.env"
+  { grep -v "^$2=" "$f" || true; echo "$2=$3"; } >"$f.tmp" && mv "$f.tmp" "$f"
+}
+desktop_of() { local d; d=$(db_get "$1" DESKTOP); echo "${d:-$DESKTOP_DIR/startappimage-$1.desktop}"; }
+
+desktop_set() { # file KEY value: replace the first KEY= line, or add it under [Desktop Entry]
+  local f=$1
+  if grep -q "^$2=" "$f"; then
+    K="$2" V="$3" awk 'index($0, ENVIRON["K"] "=") == 1 && !d { print ENVIRON["K"] "=" ENVIRON["V"]; d = 1; next } { print }' "$f" >"$f.tmp"
+  else
+    K="$2" V="$3" awk '{ print } /^\[Desktop Entry\]/ && !d { print ENVIRON["K"] "=" ENVIRON["V"]; d = 1 }' "$f" >"$f.tmp"
+  fi
+  mv "$f.tmp" "$f"
+}
+desktop_unset() { { grep -v "^$2=" "$1" || true; } >"$1.tmp"; mv "$1.tmp" "$1"; }
+
+exec_line() { sed -n 's/^Exec=//p' "$1" | head -n1; }
+exec_args() { # the arguments of a launcher's Exec line, without the program and the field codes
+  local line rest
+  line=$(exec_line "$1")
+  if [[ $line == \"* ]]; then rest=${line#\"}; rest=${rest#*\"}; else rest=${line#* }; [[ "$rest" != "$line" ]] || rest=""; fi
+  sed -E 's/ ?%[a-zA-Z]//g; s/^ +//; s/ +$//' <<<"$rest"
+}
+exec_code() { exec_line "$1" | grep -oE '%[fFuU]' | tail -n1 || true; }
+write_exec() { # desktop-file program arguments
+  local code line; code=$(exec_code "$1")
+  line="\"$2\""
+  [[ -z "$3" ]] || line+=" $3"
+  [[ -z "$code" ]] || line+=" $code"
+  desktop_set "$1" Exec "$line"
+}
+
+cmd_config() {
+  need jq; sync_external
+  [[ $# -eq 1 ]] || die "config: missing name"
+  local id exe desk src hidden=false external=false
+  id=$(slug "$1")
+  [[ -f "$DB_DIR/$id.env" ]] || die "not installed: $id"
+  exe=$(app_exec "$id"); desk=$(desktop_of "$id"); src=$(db_get "$id" SOURCE)
+  [[ ! -f "$desk" ]] || { grep -q '^NoDisplay=true' "$desk" && hidden=true || true; }
+  [[ "$(db_get "$id" EXTERNAL)" != 1 ]] || external=true
+  jq -nc --arg id "$id" --arg name "$(db_get "$id" NAME)" --arg path "$exe" --arg dir "$(dirname "$exe")" \
+    --arg args "$([[ -f "$desk" ]] && exec_args "$desk" || true)" --arg source "$src" --arg version "$(db_get "$id" VERSION)" \
+    --argjson hidden "$hidden" --argjson external "$external" \
+    '{id:$id,name:$name,path:$path,dir:$dir,args:$args,source:$source,version:$version,hidden:$hidden,external:$external}'
+}
+
+cmd_set() {
+  [[ $# -ge 1 ]] || die "set: missing name"
+  local id; id=$(slug "$1"); shift
+  [[ -f "$DB_DIR/$id.env" ]] || die "not installed: $id"
+  local desk exe new_dir="" new_name="" new_args="" new_source="" new_hidden=""
+  local has_name=0 has_args=0 has_source=0
+  while (( $# )); do
+    case "$1" in
+      --dir) [[ $# -ge 2 ]] || die "set: --dir needs a folder"; new_dir=$2; shift 2 ;;
+      --name) [[ $# -ge 2 ]] || die "set: --name needs a value"; new_name=$2; has_name=1; shift 2 ;;
+      --args) [[ $# -ge 2 ]] || die "set: --args needs a value"; new_args=$2; has_args=1; shift 2 ;;
+      --source) [[ $# -ge 2 ]] || die "set: --source needs a value"; new_source=$2; has_source=1; shift 2 ;;
+      --hidden) [[ $# -ge 2 ]] || die "set: --hidden needs true or false"; new_hidden=$2; shift 2 ;;
+      *) die "set: unknown option $1" ;;
+    esac
+  done
+  desk=$(desktop_of "$id"); exe=$(app_exec "$id")
+  [[ -f "$desk" ]] || die "launcher entry not found: $desk"
+
+  if [[ -n "$new_dir" ]]; then
+    new_dir=${new_dir/#\~/$HOME}; new_dir=${new_dir%/}
+    [[ "$new_dir" == "$HOME"/* ]] || die "the folder must be inside your home directory: $new_dir"
+    if [[ "$new_dir" != "$(dirname "$exe")" ]]; then
+      local target
+      if [[ "$(db_get "$id" EXTERNAL)" == 1 ]]; then target="$new_dir/$(basename "$exe")"; else target="$new_dir/$id.AppImage"; fi
+      [[ ! -e "$target" ]] || die "$target already exists"
+      mkdir -p "$new_dir"
+      mv "$exe" "$target"
+      [[ "$(db_get "$id" EXTERNAL)" == 1 ]] || ln -sf "$target" "$BIN_DIR/$id"
+      db_set "$id" EXEC "$target"
+      write_exec "$desk" "$target" "$(exec_args "$desk")"
+      exe=$target
+    fi
+  fi
+  if [[ $has_args -eq 1 ]]; then write_exec "$desk" "$exe" "$new_args"; fi
+  if [[ $has_name -eq 1 && -n "$new_name" ]]; then
+    db_set "$id" NAME "$new_name"; desktop_set "$desk" Name "$new_name"
+  fi
+  if [[ $has_source -eq 1 ]]; then
+    local repo=${new_source#github:}
+    repo=${repo#https://github.com/}; repo=${repo%.git}; repo=${repo%/}
+    if [[ -z "$repo" ]]; then
+      if [[ "$(db_get "$id" EXTERNAL)" == 1 ]]; then db_set "$id" SOURCE external; else db_set "$id" SOURCE local; fi
+    else
+      [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "the update source must look like owner/repo"
+      db_set "$id" SOURCE "github:$repo"
+    fi
+  fi
+  case "$new_hidden" in
+    true) desktop_set "$desk" NoDisplay true ;;
+    false) desktop_unset "$desk" NoDisplay ;;
+    "") ;;
+    *) die "set: --hidden takes true or false" ;;
+  esac
+  command -v update-desktop-database >/dev/null && update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  echo "Saved $id"
+}
+
+# --- locations -------------------------------------------------------------------
+# JSON for the install card: the default folder, plus every folder AppImages already live in.
+cmd_locations() {
+  need jq; sync_external
+  shopt -s nullglob
+  local -a dirs=("$APP_DIR" "$LEGACY_APP_DIR")
+  local f id d seen="" out=""
+  [[ ! -d "$HOME/Applications" ]] || dirs+=("$HOME/Applications")
+  for f in "$DB_DIR"/*.env; do
+    id=$(basename "$f" .env); dirs+=("$(dirname "$(app_exec "$id")")")
+  done
+  for d in "${dirs[@]}"; do
+    d=${d%/}
+    [[ -d "$d" || "$d" == "$APP_DIR" ]] || continue
+    case $'\n'"$seen" in *$'\n'"$d"$'\n'*) continue ;; esac
+    seen+=$'\n'"$d"$'\n'
+    local -a found=("$d"/*.AppImage)
+    out+="$d"$'\t'"${#found[@]}"$'\n'
+  done
+  printf '%s' "$out" | jq -Rn --arg def "$APP_DIR" \
+    '{default:$def, options:[inputs | select(length > 0) | split("\t") | {path:.[0], apps:(.[1] | tonumber)}]}'
+}
+
+# --- list ----------------------------------------------------------------------
+cmd_list() {
+  shopt -s nullglob
+  sync_external
+  local first=1 f id
+  [[ ${1:-} == --json ]] && echo "["
+  for f in "$DB_DIR"/*.env; do
+    id=$(basename "$f" .env)
+    if [[ ${1:-} == --json ]]; then
+      [[ $first -eq 1 ]] || echo ","; first=0
+      local icon="" external=false
+      [[ "$(db_get "$id" EXTERNAL)" == 1 ]] && external=true
+      for icon in "$(db_get "$id" ICON)" "$ICON_DIR/startappimage-$id.png" "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage-$id.svg" ""; do
+        [[ -f "$icon" ]] && break
+      done
+      jq -nc --arg id "$id" --arg name "$(db_get "$id" NAME)" --arg source "$(db_get "$id" SOURCE)" \
+        --arg version "$(db_get "$id" VERSION)" --arg icon "$icon" \
+        --arg exec "$(app_exec "$id")" --argjson external "$external" \
+        '{id:$id,name:$name,source:$source,version:$version,icon:$icon,exec:$exec,external:$external}'
+    else
+      printf '%-24s %-12s %s\n' "$id" "$(db_get "$id" VERSION)" "$(db_get "$id" SOURCE)"
+    fi
+  done
+  [[ ${1:-} == --json ]] && echo "]"
+  return 0
+}
+
+# --- check / update ------------------------------------------------------------
+# Prints "id<TAB>current<TAB>latest<TAB>url" for each updatable app.
+pending_updates() {
+  need jq; shopt -s nullglob
+  local f id src tag url
+  for f in "$DB_DIR"/${1:+$1}*.env; do
+    id=$(basename "$f" .env); [[ -z "${1:-}" || $id == "$1" ]] || continue
+    src=$(db_get "$id" SOURCE); [[ $src == github:* ]] || continue
+    IFS=$'\t' read -r tag url < <(gh_latest "${src#github:}") || continue
+    [[ -n "$url" && "${tag#v}" != "$(db_get "$id" VERSION | sed 's/^v//')" ]] && printf '%s\t%s\t%s\t%s\n' "$id" "$(db_get "$id" VERSION)" "$tag" "$url"
+  done
+  return 0
+}
+
+cmd_check() {
+  if [[ ${1:-} == --json ]]; then
+    pending_updates | jq -Rn '[inputs|split("\t")|{id:.[0],current:.[1],latest:.[2]}]'
+  else
+    pending_updates | awk -F'\t' '{printf "%s: %s -> %s\n",$1,$2,$3}'
+  fi
+}
+
+cmd_update() {
+  local id cur tag url tmp
+  while IFS=$'\t' read -r id cur tag url; do
+    echo "Updating $id: $cur -> $tag"
+    tmp=$(mktemp); curl -fL --progress-bar -o "$tmp" "$url"
+    chmod +x "$tmp"; mv "$tmp" "$(app_exec "$id")"
+    db_write "$id" "$(db_get "$id" NAME)" "$(db_get "$id" SOURCE)" "$tag" "EXEC=$(app_exec "$id")"
+  done < <(pending_updates "${1:-}")
+  echo "Done."
+}
+
+# --- remove --------------------------------------------------------------------
+cmd_remove() {
+  [[ $# -eq 1 ]] || die "remove: missing name"
+  local id; id=$(slug "$1")
+  [[ -f "$DB_DIR/$id.env" ]] || die "not installed: $id"
+  if [[ "$(db_get "$id" EXTERNAL)" == 1 ]]; then
+    local exe desk icon
+    exe=$(db_get "$id" EXEC); desk=$(db_get "$id" DESKTOP); icon=$(db_get "$id" ICON)
+    [[ "$exe" == "$HOME"/* && ${exe,,} == *.appimage ]] || die "refusing to remove $exe"
+    rm -f "$exe" "$DB_DIR/$id.env"
+    [[ "$desk" != "$DESKTOP_DIR"/*.desktop ]] || rm -f "$desk"
+    [[ "$icon" != "$HOME/.local/share/"* ]] || rm -f "$icon"
+    command -v update-desktop-database >/dev/null && update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+    echo "Removed $id"
+    return 0
+  fi
+  rm -f "$(app_exec "$id")" "$BIN_DIR/$id" "$DESKTOP_DIR/startappimage-$id.desktop" \
+        "$ICON_DIR/startappimage-$id.png" "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage-$id.svg" \
+        "$DB_DIR/$id.env"
+  command -v update-desktop-database >/dev/null && update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  echo "Removed $id"
+}
+
+# --- open / register -----------------------------------------------------------
+choose() { # reads options on stdin, prints the pick; falls back to integrating
+  if command -v walker >/dev/null; then walker --dmenu
+  elif command -v fuzzel >/dev/null; then fuzzel --dmenu
+  elif command -v wofi >/dev/null; then wofi --dmenu
+  elif command -v rofi >/dev/null; then rofi -dmenu
+  else echo "Integrate and run"; fi
+}
+
+cmd_open() {
+  [[ $# -ge 1 && -f "$1" ]] || die "open: missing file"
+  local f pick id
+  f=$(realpath "$1")
+  case "$f" in "$LEGACY_APP_DIR"/*) chmod +x "$f"; exec "$f" ;; esac # already managed
+  # The StartAppImage shell plugin shows the install card; without it, fall back to a picker.
+  if command -v omarchy-shell >/dev/null && omarchy-shell "$PLUGIN_ID" install "$f" >/dev/null 2>&1; then
+    exit 0
+  fi
+  pick=$(printf 'Integrate and run\nRun once\n' | choose) || exit 0
+  case "$pick" in
+    Integrate*)
+      id=$(slug "$(basename "$f" .AppImage)")
+      cmd_add "$f"
+      notify-send "StartAppImage" "Installed $id" 2>/dev/null || true
+      exec "$(app_exec "$id")" ;;
+    "Run once") chmod +x "$f" 2>/dev/null || true; exec "$f" ;;
+  esac
+}
+
+cmd_register() {
+  need xdg-mime; mkdir -p "$DESKTOP_DIR" "${XDG_CONFIG_HOME:-$HOME/.config}"
+  cat >"$DESKTOP_DIR/startappimage-open.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=StartAppImage
+Comment=Install or run AppImages
+Exec=$(realpath "$0") open %f
+Icon=application-x-executable
+MimeType=application/vnd.appimage;application/x-iso9660-appimage;
+NoDisplay=true
+Terminal=false
+DESKTOP
+  cat >"$DESKTOP_DIR/startappimage.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=StartAppImage
+GenericName=AppImage Manager
+Comment=Install, update and uninstall AppImages
+Exec=$(realpath "$0") ui
+Icon=startappimage
+Categories=System;Utility;
+Keywords=appimage;install;uninstall;manager;
+Terminal=false
+DESKTOP
+  mkdir -p "$HOME/.local/share/icons/hicolor/scalable/apps"
+  cp "$(dirname "$(realpath "$0")")/../assets/startappimage.svg" "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage.svg"
+  update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  xdg-mime default startappimage-open.desktop application/vnd.appimage application/x-iso9660-appimage
+  echo "Registered as default handler for AppImage files"
+}
+
+cmd_unregister() {
+  local mime="${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list"
+  rm -f "$DESKTOP_DIR/startappimage-open.desktop" "$DESKTOP_DIR/startappimage.desktop" \
+        "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage.svg"
+  if [[ -f "$mime" ]]; then
+    sed -i '/^application\/vnd\.appimage=startappimage-open\.desktop$/d;/^application\/x-iso9660-appimage=startappimage-open\.desktop$/d' "$mime"
+  fi
+  update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  echo "Unregistered: AppImage files no longer open with StartAppImage"
+}
+
+case "${1:-help}" in
+  open) shift; cmd_open "$@" ;;
+  ui) omarchy-shell "$PLUGIN_ID" open || die "the StartAppImage plugin is not running (omarchy plugin enable $PLUGIN_ID)" ;;
+  info) shift; cmd_info "$@" ;;
+  locations) cmd_locations ;;
+  config) shift; cmd_config "$@" ;;
+  set) shift; cmd_set "$@" ;;
+  run) shift; cmd_run "$@" ;;
+  register) cmd_register ;;
+  unregister) cmd_unregister ;;
+  add) shift; cmd_add "$@" ;;
+  list) shift; cmd_list "$@" ;;
+  check) shift; cmd_check "$@" ;;
+  update) shift; cmd_update "$@" ;;
+  remove|rm) shift; cmd_remove "$@" ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 1 ;;
+esac
