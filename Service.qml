@@ -588,9 +588,10 @@ Item {
       anchors.centerIn: parent
       anchors.horizontalCenterOffset: win.dragX
       anchors.verticalCenterOffset: win.dragY
-      width: root.view === "manager" ? (win.sizeW > 0 ? win.sizeW : Style.space(640)) : Style.space(520)
+      width: root.view === "manager" ? (win.sizeW > 0 ? win.sizeW : Style.space(640))
+        : root.view === "setup" ? Style.space(760) : Style.space(520)
       height: root.view === "install" ? installView.implicitHeight
-        : root.view === "setup" ? setupView.implicitHeight
+        : root.view === "setup" ? Math.min(setupView.implicitHeight, (win.screen ? win.screen.height : 900) - Style.space(80))
         : root.view === "settings" ? settingsView.implicitHeight
         : win.sizeH > 0 ? win.sizeH
         : Math.max(Style.space(300), Math.min(managerView.implicitHeight, Style.space(580), (win.screen ? win.screen.height : 900) - Style.space(80)))
@@ -647,8 +648,7 @@ Item {
 
       SetupView {
         id: setupView
-        anchors.left: parent.left
-        anchors.right: parent.right
+        anchors.fill: parent
         svc: root
         visible: root.view === "setup"
       }

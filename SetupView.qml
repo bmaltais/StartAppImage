@@ -1,6 +1,7 @@
-// Setup: the three pieces of desktop integration, each switched on or off on its own.
-// Shown once after the plugin is enabled, and again from the manager's setup button.
-// Nothing is changed until Apply.
+// Settings: pages on the left, the settings of the chosen page on the right, laid out like
+// the StartBar settings window. Shown once after the plugin is enabled, and again from the
+// manager's gear button. Nothing is changed until Apply, because some choices rewrite
+// files outside the plugin (the launcher entry, the file handler, the command line, the bar).
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
@@ -10,42 +11,91 @@ Item {
   id: view
 
   property var svc
-  property bool launcher: true
-  property bool handler: true
-  property bool cli: true
-  property int hours: 6
-  property bool barIcon: false
-  property bool rsize: true
-  property bool rpos: true
+  // The page shown (an index into pages) and what is typed in the search box.
+  property int page: 0
+  property string query: ""
+  readonly property bool searching: view.query.trim() !== ""
+  // key -> value, what the controls show. Filled from the current state by load().
+  property var vals: ({})
 
   readonly property var integ: view.svc.integ
   readonly property bool otherHandler: !!(view.integ.handler && !view.integ.handler.ours && view.integ.handler.current)
   readonly property bool cliBlocked: !!(view.integ.cli && view.integ.cli.state === "other")
 
-  implicitHeight: col.implicitHeight + Style.spacing.panelPadding * 2
+  implicitHeight: Style.space(520)
 
-  // First time: everything on. Replacing another app's role is safe because the
-  // previous one is remembered and given back when this is switched off.
+  // ---- what there is to set -----------------------------------------------------
+  readonly property var pages: [
+    { title: "General", fields: [
+      { key: "launcher", type: "bool", label: "App launcher entry",
+        hint: "Adds StartAppImage to the app launcher (SUPER + space) to open the manager." },
+      { key: "handler", type: "choice", label: "Open .AppImage files with",
+        options: [
+          { value: true, label: "StartAppImage" },
+          { value: false, label: view.otherHandler ? "Keep " + view.integ.handler.name : "Leave as is" }
+        ],
+        hint: view.otherHandler
+          ? "Today these files open with " + view.integ.handler.name + ". StartAppImage takes over and remembers it; switching this off later gives it back."
+          : "Double-clicking an AppImage shows the install card." },
+      { key: "cli", type: "bool", label: "Command line", disabled: view.cliBlocked,
+        hint: view.cliBlocked
+          ? view.integ.cli.path + " already exists and is not StartAppImage, so it is left alone."
+          : "Links " + (view.integ.cli ? view.integ.cli.path : "") + " so you can run startappimage in a terminal." }
+    ] },
+    { title: "Bar", fields: [
+      { key: "barIcon", type: "bool", label: "Bar icon",
+        hint: "An icon on the Omarchy bar that opens the manager and lights up when an update is waiting. You can drag it around the bar." }
+    ] },
+    { title: "Updates", fields: [
+      { key: "hours", type: "choice", label: "Check for updates",
+        options: [
+          { value: 1, label: "Hourly" }, { value: 6, label: "6 hours" }, { value: 24, label: "Daily" },
+          { value: 168, label: "Weekly" }, { value: 0, label: "Never" }
+        ],
+        hint: "Apps installed from a GitHub release are checked in the background, and a popup offers the update when a new version is out." }
+    ] },
+    { title: "Window", fields: [
+      { key: "rsize", type: "bool", label: "Remember size",
+        hint: "The manager reopens at the size you gave it. Drag its bottom-right corner to resize." },
+      { key: "rpos", type: "bool", label: "Remember position",
+        hint: "The manager reopens where you left it. Drag its top strip to move it. Switched off, it opens centred." }
+    ] }
+  ]
+
+  function matches(field) {
+    var q = view.query.trim().toLowerCase()
+    return (field.label + " " + (field.hint || "")).toLowerCase().indexOf(q) !== -1
+  }
+  readonly property var shownGroups: {
+    if (!view.searching) return [view.pages[view.page]]
+    var out = []
+    for (var i = 0; i < view.pages.length; i++) {
+      var fields = view.pages[i].fields.filter(view.matches)
+      if (fields.length) out.push({ title: view.pages[i].title, fields: fields })
+    }
+    return out
+  }
+
+  function setValue(key, value) {
+    var next = Object.assign({}, view.vals)
+    next[key] = value
+    view.vals = next
+  }
+
+  // First time: everything on except the bar icon. Replacing another app's role is safe
+  // because the previous one is remembered and given back when this is switched off.
   // Afterwards: what is switched on right now.
   function load() {
     var i = view.integ
     if (!i.cli) return
+    view.page = 0
+    view.query = ""
     if (i.done) {
-      view.launcher = i.launcher
-      view.handler = i.handler.ours
-      view.cli = i.cli.state === "ours"
-      view.hours = i.checkHours
-      view.barIcon = i.barIcon
-      view.rsize = i.rememberSize
-      view.rpos = i.rememberPosition
+      view.vals = { launcher: i.launcher, handler: i.handler.ours, cli: i.cli.state === "ours",
+        barIcon: i.barIcon, hours: i.checkHours, rsize: i.rememberSize, rpos: i.rememberPosition }
     } else {
-      view.launcher = true
-      view.handler = true
-      view.cli = !view.cliBlocked
-      view.hours = 6
-      view.barIcon = false
-      view.rsize = true
-      view.rpos = true
+      view.vals = { launcher: true, handler: true, cli: !view.cliBlocked,
+        barIcon: false, hours: 6, rsize: true, rpos: true }
     }
   }
   onVisibleChanged: if (visible) view.load()
@@ -53,146 +103,326 @@ Item {
     target: view.svc
     function onIntegChanged() { if (view.visible) view.load() }
   }
+  onPageChanged: body.contentY = 0
+  onQueryChanged: body.contentY = 0
 
-  component Label: Text {
-    color: Color.muted
-    font.family: Style.font.family
-    font.pixelSize: Style.font.caption
-    font.letterSpacing: 1
-  }
-  component Hint: Text {
-    Layout.fillWidth: true
-    color: Color.muted
-    font.family: Style.font.family
-    font.pixelSize: Style.font.caption
-    wrapMode: Text.Wrap
+  function apply() {
+    var v = view.vals
+    view.svc.applySetup(v.launcher, v.handler, v.cli && !view.cliBlocked, v.hours, v.rsize, v.rpos, v.barIcon)
   }
 
-  ColumnLayout {
-    id: col
-    anchors.fill: parent
-    anchors.margins: Style.spacing.panelPadding
-    spacing: Style.spacing.panelGap
+  readonly property color hairline: Util.alpha(Color.foreground, 0.14)
+  readonly property real rowRadius: Math.max(Style.cornerRadius, Style.space(5))
 
-    RowLayout {
-      Layout.fillWidth: true
-      Layout.rightMargin: Style.space(28)
-      spacing: Style.spacing.xxl
-      Image {
-        source: Qt.resolvedUrl("assets/startappimage.svg")
-        sourceSize.width: Style.space(64)
-        sourceSize.height: Style.space(64)
-        Layout.preferredWidth: Style.space(32)
-        Layout.preferredHeight: Style.space(32)
+  // ---- header: the search box, centred, with room for the close button ---------------
+  Item {
+    id: header
+    anchors.top: parent.top
+    anchors.left: parent.left
+    anchors.right: parent.right
+    height: Style.space(60)
+
+    Rectangle {
+      id: searchBox
+      anchors.centerIn: parent
+      width: Math.min(Style.space(380), parent.width - Style.space(120))
+      height: Style.space(34)
+      radius: height / 2
+      color: Util.alpha(Color.foreground, 0.06)
+      border.width: Style.normalBorderWidth
+      border.color: Util.alpha(Color.foreground, search.activeFocus ? 0.30 : 0.12)
+
+      Text {
+        id: glass
+        anchors.left: parent.left
+        anchors.leftMargin: Style.spacing.xxxl
+        anchors.verticalCenter: parent.verticalCenter
+        text: ""
+        color: Color.muted
+        font.family: Style.font.family
+        font.pixelSize: Style.font.body
       }
-      ColumnLayout {
-        Layout.fillWidth: true
-        spacing: 0
+      TextInput {
+        id: search
+        anchors.fill: parent
+        anchors.leftMargin: Style.spacing.xxxl + glass.width + Style.spacing.md
+        anchors.rightMargin: Style.spacing.xxxl
+        verticalAlignment: TextInput.AlignVCenter
+        color: Color.foreground
+        selectionColor: Util.alpha(Color.accent, 0.4)
+        font.family: Style.font.family
+        font.pixelSize: Style.font.body
+        maximumLength: 64
+        clip: true
+        text: view.query
+        onTextChanged: if (view.query !== search.text) view.query = search.text
+        // Escape clears a search first, then closes the window.
+        Keys.onEscapePressed: function (event) {
+          if (search.text !== "") { search.text = ""; event.accepted = true } else event.accepted = false
+        }
         Text {
-          text: "Set up StartAppImage"
-          color: Color.foreground
-          font.family: Style.font.family
-          font.pixelSize: Style.font.heading
-          font.bold: true
-        }
-        Label { text: "CHOOSE WHAT TO SWITCH ON" }
-      }
-    }
-
-    // App launcher
-    ColumnLayout {
-      Layout.fillWidth: true
-      spacing: Style.spacing.md
-      Label { text: "APP LAUNCHER ENTRY" }
-      Row {
-        spacing: Style.spacing.md
-        Chip { label: "On"; selected: view.launcher; onClicked: view.launcher = true }
-        Chip { label: "Off"; selected: !view.launcher; onClicked: view.launcher = false }
-      }
-      Hint { text: "Adds StartAppImage to the app launcher (SUPER + space) to open the manager." }
-    }
-
-    // File handler
-    ColumnLayout {
-      Layout.fillWidth: true
-      spacing: Style.spacing.md
-      Label { text: "OPEN .APPIMAGE FILES" }
-      Row {
-        spacing: Style.spacing.md
-        Chip { label: "With StartAppImage"; selected: view.handler; onClicked: view.handler = true }
-        Chip { label: view.otherHandler ? "Keep " + view.integ.handler.name : "Leave as is"; selected: !view.handler; onClicked: view.handler = false }
-      }
-      Hint {
-        text: view.otherHandler
-          ? "Today these files open with " + view.integ.handler.name + ". StartAppImage will take over and remember it; switching this off later gives it back."
-          : "Double-clicking an AppImage shows the install card."
-      }
-    }
-
-    // Command line
-    ColumnLayout {
-      Layout.fillWidth: true
-      spacing: Style.spacing.md
-      Label { text: "COMMAND LINE" }
-      Row {
-        spacing: Style.spacing.md
-        Chip { label: "Add to PATH"; selected: view.cli && !view.cliBlocked; onClicked: if (!view.cliBlocked) view.cli = true }
-        Chip { label: "No"; selected: !view.cli || view.cliBlocked; onClicked: view.cli = false }
-      }
-      Hint {
-        text: view.cliBlocked
-          ? (view.integ.cli.path + " already exists and is not StartAppImage, so it will be left alone.")
-          : "Links " + (view.integ.cli ? view.integ.cli.path : "") + " so you can run startappimage in a terminal."
-      }
-    }
-
-    // Bar icon
-    ColumnLayout {
-      Layout.fillWidth: true
-      spacing: Style.spacing.md
-      Label { text: "BAR ICON" }
-      Row {
-        spacing: Style.spacing.md
-        Chip { label: "Add to the bar"; selected: view.barIcon; onClicked: view.barIcon = true }
-        Chip { label: "No"; selected: !view.barIcon; onClicked: view.barIcon = false }
-      }
-      Hint { text: "An icon on the Omarchy bar that opens the manager and lights up when an update is waiting. You can also drag it around the bar." }
-    }
-
-    // Update checks
-    ColumnLayout {
-      Layout.fillWidth: true
-      spacing: Style.spacing.md
-      Label { text: "CHECK FOR UPDATES" }
-      Row {
-        spacing: Style.spacing.md
-        Repeater {
-          model: [{ h: 1, t: "Hourly" }, { h: 6, t: "6 hours" }, { h: 24, t: "Daily" }, { h: 168, t: "Weekly" }, { h: 0, t: "Never" }]
-          Chip { label: modelData.t; selected: view.hours === modelData.h; onClicked: view.hours = modelData.h }
+          visible: search.text === ""
+          anchors.verticalCenter: parent.verticalCenter
+          text: "Find a setting"
+          color: Color.muted
+          font: search.font
         }
       }
-      Hint { text: "Apps installed from a GitHub release are checked in the background, and a popup offers the update when a new version is out." }
+    }
+  }
+
+  // ---- left: the window's name and one item per page ---------------------------------
+  Item {
+    id: side
+    anchors.top: header.bottom
+    anchors.bottom: footer.top
+    anchors.left: parent.left
+    anchors.leftMargin: Style.spacing.lg
+    width: Style.space(190)
+
+    Text {
+      id: title
+      anchors.top: parent.top
+      anchors.left: parent.left
+      anchors.right: parent.right
+      height: Style.space(40)
+      verticalAlignment: Text.AlignVCenter
+      elide: Text.ElideRight
+      text: "StartAppImage"
+      color: Color.foreground
+      font.family: Style.font.family
+      font.pixelSize: Style.font.body + 3
+      font.bold: true
     }
 
-    // Window memory
-    ColumnLayout {
-      Layout.fillWidth: true
-      spacing: Style.spacing.md
-      Label { text: "MANAGER WINDOW" }
-      Row {
-        spacing: Style.spacing.md
-        Chip { label: "Remember size"; selected: view.rsize; onClicked: view.rsize = !view.rsize }
-        Chip { label: "Remember position"; selected: view.rpos; onClicked: view.rpos = !view.rpos }
+    Column {
+      anchors.top: title.bottom
+      anchors.topMargin: Style.spacing.sm
+      anchors.left: parent.left
+      anchors.right: parent.right
+      spacing: Style.space(2)
+
+      Repeater {
+        model: view.pages
+
+        delegate: Rectangle {
+          id: nav
+          required property var modelData
+          required property int index
+          readonly property bool current: !view.searching && view.page === nav.index
+          width: parent.width
+          height: Style.space(38)
+          radius: view.rowRadius
+          color: nav.current ? Util.alpha(Color.accent, 0.22)
+            : (navHover.hovered ? Style.hoverFillFor(Color.foreground, Color.accent) : "transparent")
+
+          // The mark beside the current page.
+          Rectangle {
+            visible: nav.current
+            anchors.left: parent.left
+            anchors.leftMargin: Style.space(3)
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.space(3)
+            height: Style.space(16)
+            radius: width / 2
+            color: Color.accent
+          }
+          Text {
+            anchors.left: parent.left
+            anchors.leftMargin: Style.space(16)
+            anchors.verticalCenter: parent.verticalCenter
+            text: nav.modelData.title
+            color: Color.foreground
+            font.family: Style.font.family
+            font.pixelSize: Style.font.body
+            font.bold: nav.current
+          }
+          HoverHandler { id: navHover }
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: { view.query = ""; view.page = nav.index }
+          }
+        }
       }
-      Hint { text: "Drag the top strip to move the manager and its bottom-right corner to resize it. Switched off, it opens centred at the default size." }
+    }
+  }
+
+  // ---- right: the page heading and its settings --------------------------------------
+  Text {
+    id: heading
+    anchors.top: header.bottom
+    anchors.left: side.right
+    anchors.leftMargin: Style.spacing.lg * 2
+    anchors.right: parent.right
+    anchors.rightMargin: Style.spacing.lg
+    height: Style.space(40)
+    verticalAlignment: Text.AlignVCenter
+    elide: Text.ElideRight
+    text: view.searching ? "Search results" : view.pages[view.page].title
+    color: Color.foreground
+    font.family: Style.font.family
+    font.pixelSize: Style.font.body + 8
+    font.bold: true
+  }
+
+  Flickable {
+    id: body
+    anchors.top: heading.bottom
+    anchors.bottom: footer.top
+    anchors.left: side.right
+    anchors.right: parent.right
+    anchors.leftMargin: Style.spacing.lg * 2
+    // Room for the scroll bar's gutter, always: sizing the body by whether it scrolls
+    // would change its width, and with it its height.
+    anchors.rightMargin: Style.spacing.lg + Style.spacing.lg + Style.spacing.xs
+    contentHeight: rows.implicitHeight
+    clip: true
+    boundsBehavior: Flickable.StopAtBounds
+
+    Column {
+      id: rows
+      width: body.width
+
+      Text {
+        visible: view.searching && view.shownGroups.length === 0
+        width: rows.width
+        wrapMode: Text.WordWrap
+        topPadding: Style.spacing.md
+        text: "No setting matches “" + view.query.trim() + "”."
+        color: Util.alpha(Color.foreground, 0.7)
+        font.family: Style.font.family
+        font.pixelSize: Style.font.body
+      }
+
+      Repeater {
+        model: view.shownGroups
+
+        delegate: Column {
+          id: group
+          required property var modelData
+          width: rows.width
+
+          // Search results come from several pages: say which.
+          Text {
+            visible: view.searching
+            topPadding: Style.spacing.md
+            bottomPadding: Style.spacing.xs
+            text: group.modelData.title
+            color: Util.alpha(Color.foreground, 0.7)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            font.bold: true
+          }
+
+          Repeater {
+            model: group.modelData.fields
+
+            delegate: Item {
+              id: row
+              required property var modelData
+              readonly property var field: row.modelData
+              readonly property var value: view.vals[row.field.key]
+              readonly property bool live: !row.field.disabled
+
+              width: group.width
+              opacity: row.live ? 1 : 0.4
+              height: Math.max(labels.implicitHeight, editor.height) + Style.spacing.md * 2
+
+              Rectangle {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Util.alpha(view.hairline, 0.5)
+              }
+
+              Column {
+                id: labels
+                anchors.top: parent.top
+                anchors.topMargin: Style.spacing.md
+                anchors.left: parent.left
+                width: parent.width - editor.width - Style.spacing.xxl
+                Text {
+                  width: parent.width
+                  elide: Text.ElideRight
+                  text: row.field.label
+                  color: Color.foreground
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.body
+                }
+                Text {
+                  visible: !!row.field.hint
+                  width: parent.width
+                  wrapMode: Text.WordWrap
+                  text: row.field.hint || ""
+                  color: Util.alpha(Color.foreground, 0.55)
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                }
+              }
+
+              Loader {
+                id: editor
+                enabled: row.live
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                sourceComponent: row.field.type === "bool" ? switchEditor : choiceEditor
+                onLoaded: {
+                  item.field = Qt.binding(function () { return row.field })
+                  item.value = Qt.binding(function () { return row.value })
+                }
+                Connections {
+                  target: editor.item
+                  ignoreUnknownSignals: true
+                  function onCommit(next) { view.setValue(row.field.key, next) }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      Item { width: 1; height: Style.spacing.md }
+    }
+  }
+
+  ScrollTrack {
+    target: body
+    anchors.top: body.top
+    anchors.bottom: body.bottom
+    anchors.right: parent.right
+    anchors.rightMargin: Style.spacing.lg
+    width: Style.spacing.md
+  }
+
+  // ---- footer ----------------------------------------------------------------------------
+  Item {
+    id: footer
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    height: Style.space(52)
+
+    Text {
+      anchors.left: parent.left
+      anchors.leftMargin: Style.spacing.lg
+      anchors.right: footerButtons.left
+      anchors.rightMargin: Style.spacing.lg
+      anchors.verticalCenter: parent.verticalCenter
+      elide: Text.ElideRight
+      text: view.integ.done ? "Changes apply when you press Apply" : "First time here: choose what to switch on, then press Apply"
+      color: Util.alpha(Color.foreground, 0.55)
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
     }
 
-    Hint { text: "Only your home folder is touched, and every choice can be changed later from the setup button in the manager." }
-
-    RowLayout {
-      Layout.fillWidth: true
+    Row {
+      id: footerButtons
+      anchors.right: parent.right
+      anchors.rightMargin: Style.spacing.lg
+      anchors.verticalCenter: parent.verticalCenter
       spacing: Style.spacing.lg
-      Item { Layout.fillWidth: true }
       Button {
         text: "Not now"
         bordered: true
@@ -201,7 +431,84 @@ Item {
       Button {
         text: view.svc.setupBusy ? "Applying..." : "Apply"
         selected: true
-        onClicked: view.svc.applySetup(view.launcher, view.handler, view.cli && !view.cliBlocked, view.hours, view.rsize, view.rpos, view.barIcon)
+        onClicked: view.apply()
+      }
+    }
+  }
+
+  // ---- editors: each is given `field` and `value` and emits commit(next) ----------------
+  Component {
+    id: switchEditor
+    Rectangle {
+      id: sw
+      property var field: null
+      property var value: false
+      signal commit(var next)
+      implicitWidth: Style.space(42)
+      implicitHeight: Style.space(24)
+      width: implicitWidth
+      height: implicitHeight
+      radius: height / 2
+      color: sw.value ? Color.accent : Util.alpha(Color.foreground, 0.25)
+      // The Loader hands over the real value just after this is created; animating only
+      // once that has settled keeps the knob from sliding into place when the page opens.
+      property bool settled: false
+      Component.onCompleted: Qt.callLater(function () { sw.settled = true })
+
+      Rectangle {
+        width: parent.height - 6
+        height: width
+        radius: width / 2
+        y: 3
+        x: sw.value ? parent.width - width - 3 : 3
+        color: Color.menu.background
+        Behavior on x { enabled: sw.settled; NumberAnimation { duration: 100 } }
+      }
+      MouseArea {
+        anchors.fill: parent
+        cursorShape: Qt.PointingHandCursor
+        onClicked: sw.commit(!sw.value)
+      }
+    }
+  }
+
+  Component {
+    id: choiceEditor
+    Row {
+      id: choices
+      property var field: null
+      property var value: null
+      signal commit(var next)
+      spacing: 2
+
+      Repeater {
+        model: choices.field ? choices.field.options : []
+
+        delegate: Rectangle {
+          id: choice
+          required property var modelData
+          readonly property bool selected: choices.value === choice.modelData.value
+          width: choiceLabel.implicitWidth + Style.spacing.lg * 2
+          height: Style.space(28)
+          radius: view.rowRadius
+          color: choice.selected ? Color.accent
+            : (choiceHover.hovered ? Style.hoverFillFor(Color.foreground, Color.accent) : Util.alpha(Color.foreground, 0.08))
+
+          Text {
+            id: choiceLabel
+            anchors.centerIn: parent
+            text: choice.modelData.label
+            color: choice.selected ? Color.menu.background : Color.foreground
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+          HoverHandler { id: choiceHover }
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: choices.commit(choice.modelData.value)
+          }
+        }
       }
     }
   }
