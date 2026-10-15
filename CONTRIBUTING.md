@@ -9,12 +9,13 @@
 | `ManagerView.qml`, `AppRow.qml` | The manager and the look of one app |
 | `InstallView.qml` | The install card shown when an `.AppImage` is opened |
 | `SettingsView.qml` | A single app's settings |
+| `SetupView.qml` | The setup card: launcher entry, file handler, command line |
 | `Chip.qml`, `Field.qml` | A selectable choice and a text field |
 | `bin/startappimage` | The command line: install, list, update, remove, settings. It is the only part that touches files |
 | `assets/` | The launcher icon |
 | `screenshots/` | Images used by the README |
 
-The QML never edits files itself: it asks `bin/startappimage` and reads its JSON (`list --json`, `info`, `config`, `locations`, `check --json`).
+The QML never edits files itself: it asks `bin/startappimage` and reads its JSON (`list --json`, `info`, `config`, `locations`, `integration`, `check --json`).
 
 ## Development install
 
@@ -30,7 +31,7 @@ omarchy restart shell
 Run it from a checkout by linking it into `~/.config/omarchy/plugins/io.github.bmaltais.startappimage`, or copy the checkout there. Then:
 
 ```sh
-bin/startappimage register          # launcher entry, icon and the .AppImage handler
+bin/startappimage setup --launcher true --handler true   # launcher entry, icon and the .AppImage handler
 omarchy-shell io.github.bmaltais.startappimage open
 ```
 

@@ -40,8 +40,11 @@ Usage: startappimage <command> [args]
   ui                                        Open the manager window (installed apps, uninstall)
   info <file>                               Print JSON metadata for an AppImage
   run <file>                                Run an AppImage without installing
-  register                                  Make StartAppImage the default handler for .AppImage files
-  unregister                                Undo register (installed apps are left alone)
+  integration                               JSON: launcher entry, file handler and command-line link state
+  setup [--launcher B] [--handler B] [--cli B] [--done]
+                                            Switch each piece of integration on or off (B is true|false)
+  register                                  Same as: setup --launcher true --handler true
+  unregister                                Switch all three off (installed apps are left alone)
   help                                      Show this help
 EOF
 }
@@ -506,46 +509,138 @@ cmd_open() {
   esac
 }
 
-cmd_register() {
-  need xdg-mime; mkdir -p "$DESKTOP_DIR" "${XDG_CONFIG_HOME:-$HOME/.config}"
-  cat >"$DESKTOP_DIR/startappimage-open.desktop" <<DESKTOP
-[Desktop Entry]
-Type=Application
-Name=StartAppImage
-Comment=Install or run AppImages
-Exec=$(realpath "$0") open %f
-Icon=application-x-executable
-MimeType=application/vnd.appimage;application/x-iso9660-appimage;
-NoDisplay=true
-Terminal=false
-DESKTOP
+# --- setup: launcher entry, file handler, command line ----------------------------
+# Three independent pieces of desktop integration, each switched on or off on its own.
+MIME_TYPES="application/vnd.appimage application/x-iso9660-appimage"
+OPEN_DESKTOP="startappimage-open.desktop"
+CLI_LINK="$BIN_DIR/startappimage"
+SELF=$(realpath "$0")
+
+mime_default() { xdg-mime query default application/vnd.appimage 2>/dev/null || true; }
+is_true() { [[ $1 == true ]]; }
+
+launcher_on() {
+  mkdir -p "$DESKTOP_DIR" "$HOME/.local/share/icons/hicolor/scalable/apps"
   cat >"$DESKTOP_DIR/startappimage.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=StartAppImage
 GenericName=AppImage Manager
 Comment=Install, update and uninstall AppImages
-Exec=$(realpath "$0") ui
+Exec=$SELF ui
 Icon=startappimage
 Categories=System;Utility;
 Keywords=appimage;install;uninstall;manager;
 Terminal=false
 DESKTOP
-  mkdir -p "$HOME/.local/share/icons/hicolor/scalable/apps"
-  cp "$(dirname "$(realpath "$0")")/../assets/startappimage.svg" "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage.svg"
+  cp "$(dirname "$SELF")/../assets/startappimage.svg" "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage.svg"
   update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
-  xdg-mime default startappimage-open.desktop application/vnd.appimage application/x-iso9660-appimage
-  echo "Registered as default handler for AppImage files"
 }
 
-cmd_unregister() {
-  local mime="${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list"
-  rm -f "$DESKTOP_DIR/startappimage-open.desktop" "$DESKTOP_DIR/startappimage.desktop" \
-        "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage.svg"
-  if [[ -f "$mime" ]]; then
+launcher_off() {
+  rm -f "$DESKTOP_DIR/startappimage.desktop" "$HOME/.local/share/icons/hicolor/scalable/apps/startappimage.svg"
+  update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+}
+
+handler_on() {
+  need xdg-mime; mkdir -p "$DESKTOP_DIR"
+  local prev; prev=$(mime_default)
+  # Remember what opened AppImages before, so switching this off can give it back.
+  if [[ -n $prev && $prev != "$OPEN_DESKTOP" ]]; then cfg_set PREVIOUS_HANDLER "$prev"; fi
+  cat >"$DESKTOP_DIR/$OPEN_DESKTOP" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=StartAppImage
+Comment=Install or run AppImages
+Exec=$SELF open %f
+Icon=application-x-executable
+MimeType=application/vnd.appimage;application/x-iso9660-appimage;
+NoDisplay=true
+Terminal=false
+DESKTOP
+  update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  # shellcheck disable=SC2086
+  xdg-mime default "$OPEN_DESKTOP" $MIME_TYPES
+}
+
+handler_off() {
+  local mime="${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list" prev t
+  prev=$(cfg_get PREVIOUS_HANDLER)
+  rm -f "$DESKTOP_DIR/$OPEN_DESKTOP"
+  if [[ -f $mime ]]; then
     sed -i '/^application\/vnd\.appimage=startappimage-open\.desktop$/d;/^application\/x-iso9660-appimage=startappimage-open\.desktop$/d' "$mime"
   fi
   update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+  if [[ -n $prev ]] && [[ -f "$DESKTOP_DIR/$prev" || -f "/usr/share/applications/$prev" ]] && command -v xdg-mime >/dev/null; then
+    for t in $MIME_TYPES; do xdg-mime default "$prev" "$t"; done
+  fi
+}
+
+# ours | other | none: whose file, if any, sits at ~/.local/bin/startappimage
+cli_state() {
+  if [[ -L $CLI_LINK && $(realpath "$CLI_LINK" 2>/dev/null) == "$SELF" ]]; then echo ours
+  elif [[ -e $CLI_LINK || -L $CLI_LINK ]]; then echo other
+  else echo none; fi
+}
+
+cli_on() {
+  case $(cli_state) in
+    ours) return 0 ;;
+    other) echo "startappimage: $(short_home "$CLI_LINK") already exists and is not StartAppImage, so it was left alone" >&2; return 1 ;;
+  esac
+  mkdir -p "$BIN_DIR"
+  ln -s "$SELF" "$CLI_LINK"
+}
+
+cli_off() { [[ $(cli_state) != ours ]] || rm -f "$CLI_LINK"; }
+
+short_home() { local p=$1; [[ $p == "$HOME"/* ]] && p="~${p#"$HOME"}"; printf '%s' "$p"; }
+
+# JSON for the setup card: what is switched on, and what would be replaced.
+cmd_integration() {
+  need jq
+  local launcher=false h hname="" ours=false
+  [[ ! -f $DESKTOP_DIR/startappimage.desktop ]] || launcher=true
+  h=$(mime_default)
+  if [[ $h == "$OPEN_DESKTOP" ]]; then ours=true
+  elif [[ -n $h ]]; then
+    hname=$(sed -n 's/^Name=//p' "$DESKTOP_DIR/$h" "/usr/share/applications/$h" 2>/dev/null | head -n1 || true)
+    hname=${hname:-${h%.desktop}}
+  fi
+  # Existing users who ran `register` before the setup card existed are already set up.
+  local done=false
+  { [[ $(cfg_get SETUP_DONE) == 1 ]] || { [[ $launcher == true && $ours == true ]]; }; } && done=true
+  jq -n --argjson launcher "$launcher" --argjson ours "$ours" --argjson done "$done" \
+    --arg handler "$h" --arg handlerName "$hname" --arg cli "$(cli_state)" --arg cliPath "$(short_home "$CLI_LINK")" \
+    '{launcher:$launcher, handler:{ours:$ours, current:$handler, name:$handlerName}, cli:{state:$cli, path:$cliPath}, done:$done}'
+}
+
+# setup [--launcher true|false] [--handler true|false] [--cli true|false] [--done]
+# Only what is named is touched. --done records that the setup card has been answered.
+cmd_setup() {
+  local launcher="" handler="" cli="" mark=0 failed=0
+  while (( $# )); do
+    case $1 in
+      --launcher|--handler|--cli)
+        [[ ${2:-} == true || ${2:-} == false ]] || die "setup: $1 takes true or false"
+        case $1 in --launcher) launcher=$2 ;; --handler) handler=$2 ;; --cli) cli=$2 ;; esac
+        shift 2 ;;
+      --done) mark=1; shift ;;
+      *) die "setup: unknown option $1" ;;
+    esac
+  done
+  if [[ -n $launcher ]]; then if is_true "$launcher"; then launcher_on; else launcher_off; fi; fi
+  if [[ -n $handler ]]; then if is_true "$handler"; then handler_on; else handler_off; fi; fi
+  if [[ -n $cli ]]; then
+    if is_true "$cli"; then cli_on || failed=1; else cli_off; fi
+  fi
+  [[ $mark -eq 0 && -z $launcher$handler$cli ]] || cfg_set SETUP_DONE 1
+  return $failed
+}
+
+cmd_register() { cmd_setup --launcher true --handler true; echo "Registered as default handler for AppImage files"; }
+cmd_unregister() {
+  cmd_setup --launcher false --handler false --cli false
   echo "Unregistered: AppImage files no longer open with StartAppImage"
 }
 
@@ -557,6 +652,8 @@ case "${1:-help}" in
   config) shift; cmd_config "$@" ;;
   set) shift; cmd_set "$@" ;;
   run) shift; cmd_run "$@" ;;
+  integration) cmd_integration ;;
+  setup) shift; cmd_setup "$@" ;;
   register) cmd_register ;;
   unregister) cmd_unregister ;;
   add) shift; cmd_add "$@" ;;

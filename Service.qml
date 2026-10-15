@@ -4,6 +4,7 @@
 //
 //   omarchy-shell io.github.bmaltais.startappimage open            toggle the manager
 //   omarchy-shell io.github.bmaltais.startappimage install <file>  show the install card
+//   omarchy-shell io.github.bmaltais.startappimage setup           show the setup card
 import QtQuick
 import QtQuick.Effects
 import Quickshell
@@ -25,7 +26,7 @@ Item {
 
   // ---- what the window shows ----------------------------------------------
   property bool shown: false
-  property string view: "manager"            // "manager" | "install"
+  property string view: "manager"            // "manager" | "install" | "settings" | "setup"
   property var targetScreen: null
 
   // The window is only mapped once what it shows has loaded, so it never flashes
@@ -34,6 +35,7 @@ Item {
   property bool slow: false
   readonly property bool ready: root.slow || (root.view === "manager" ? root.listLoaded
     : root.view === "install" ? (root.installState !== "loading" && root.locationsReady)
+    : root.view === "setup" ? root.integLoaded
     : (root.settingsState !== "loading" && root.locationsReady))
   onShownChanged: {
     root.slow = false
@@ -60,6 +62,12 @@ Item {
   property var locations: ({ "default": "", "options": [] })
   property string installDir: ""
   property bool locationsReady: false
+
+  // ---- setup: launcher entry, file handler, command line ---------------------
+  property var integ: ({})
+  property bool integLoaded: false
+  property bool setupBusy: false
+  property bool offerSetup: false            // true while the one-time check runs
 
   // ---- per-app settings --------------------------------------------------------
   property var settingsApp: ({})
@@ -127,6 +135,26 @@ Item {
   }
 
   function close() { root.shown = false }
+
+  function showSetup() {
+    root.integLoaded = false
+    root.view = "setup"
+    root.targetScreen = root.focusedScreen()
+    root.shown = true
+    integProc.running = true
+  }
+
+  function skipSetup() {
+    skipProc.running = true
+    root.close()
+  }
+
+  function applySetup(launcher, handler, cli) {
+    if (setupProc.running) return
+    root.setupBusy = true
+    setupProc.command = [root.cli, "setup", "--launcher", String(launcher), "--handler", String(handler), "--cli", String(cli)]
+    setupProc.running = true
+  }
 
   function showSettings(app) {
     root.settingsApp = app
@@ -219,6 +247,7 @@ Item {
       root.shown = true
       root.showSettings(app)
     }
+    function setup(): void { root.showSetup() }
     function close(): void { root.close() }
     function check(): void { root.check() }
   }
@@ -232,6 +261,38 @@ Item {
         try { root.apps = JSON.parse(text) } catch (e) { root.apps = [] }
         root.listLoaded = true
       }
+    }
+  }
+
+  Process {
+    id: integProc
+    command: [root.cli, "integration"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var info = ({})
+        try { info = JSON.parse(text) } catch (e) {}
+        root.integ = info
+        // The one-time offer only opens the card when setup has not been answered yet.
+        if (root.offerSetup) {
+          root.offerSetup = false
+          if (info.cli && !info.done) { root.showSetup(); return }
+        }
+        root.integLoaded = true
+      }
+    }
+  }
+
+  Process { id: skipProc; command: [root.cli, "setup", "--done"] }
+
+  Process {
+    id: setupProc
+    property string last: ""
+    stderr: SplitParser { onRead: line => setupProc.last = line.replace(/^startappimage: /, "") }
+    onStarted: setupProc.last = ""
+    onExited: code => {
+      root.setupBusy = false
+      root.close()
+      root.say(code === 0 ? "Setup saved" : (setupProc.last !== "" ? setupProc.last : "Setup could not be saved"), code !== 0)
     }
   }
 
@@ -371,6 +432,8 @@ Item {
   }
 
   Timer { interval: 20000; running: true; onTriggered: root.check() }
+  // Once the shell has settled, offer setup if it has never been answered.
+  Timer { interval: 4000; running: true; onTriggered: { root.offerSetup = true; integProc.running = true } }
   Timer { interval: 6 * 60 * 60 * 1000; running: true; repeat: true; onTriggered: root.check() }
   Timer { id: noticeTimer; interval: 6000; onTriggered: root.notice = "" }
 
@@ -409,6 +472,7 @@ Item {
       anchors.centerIn: parent
       width: root.view === "manager" ? Style.space(640) : Style.space(520)
       height: root.view === "install" ? installView.implicitHeight
+        : root.view === "setup" ? setupView.implicitHeight
         : root.view === "settings" ? settingsView.implicitHeight
         : Math.max(Style.space(300), Math.min(managerView.implicitHeight, Style.space(580), (win.screen ? win.screen.height : 900) - Style.space(80)))
       radius: root.radius
@@ -442,6 +506,14 @@ Item {
         anchors.right: parent.right
         svc: root
         visible: root.view === "settings"
+      }
+
+      SetupView {
+        id: setupView
+        anchors.left: parent.left
+        anchors.right: parent.right
+        svc: root
+        visible: root.view === "setup"
       }
 
       // Close button in the card's top-right corner, on every view.

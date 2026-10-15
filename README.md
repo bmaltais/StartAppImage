@@ -24,16 +24,25 @@
 
 ```sh
 omarchy plugin add https://github.com/bmaltais/StartAppImage.git --enable
-~/.config/omarchy/plugins/io.github.bmaltais.startappimage/bin/startappimage register
 ```
 
-The first line adds the plugin. The second makes StartAppImage the program that opens `.AppImage` files and adds **StartAppImage** to your app launcher (SUPER + space). It writes a launcher entry, an icon and the file-type association in your home folder, and nothing else. Everything the plugin needs (`bash`, `curl`, `jq`, `notify-send`) comes with Omarchy.
+That is all. A few seconds after the shell loads, a **setup card** offers three things, each on its own switch:
 
-Put the command line on your `PATH` if you want it in a terminal too:
+| Choice | What it does | Default |
+|---|---|---|
+| **App launcher entry** | Adds **StartAppImage** to your app launcher (SUPER + space) with its icon | On |
+| **Open `.AppImage` files** | Makes StartAppImage the program that opens them, so a double-click shows the install card | On, unless another app already opens them |
+| **Command line** | Links `~/.local/bin/startappimage` so you can use it in a terminal | On, unless that path is taken |
 
-```sh
-ln -s ~/.config/omarchy/plugins/io.github.bmaltais.startappimage/bin/startappimage ~/.local/bin/startappimage
-```
+Nothing changes until you press **Apply**, and **Not now** leaves everything as it was. The card appears once.
+
+- **Another app already opens AppImages?** The card names it ("Today these files open with *X*") and does not replace it unless you choose to. Switch the choice off later and *X* gets the files back.
+- **Something else at `~/.local/bin/startappimage`?** It is left alone and the card says so.
+- **Change your mind.** The gear button in the manager (or `omarchy-shell io.github.bmaltais.startappimage setup`) reopens the card with what is on right now.
+
+Only your home folder is touched. Everything the plugin needs (`bash`, `curl`, `jq`, `notify-send`) comes with Omarchy.
+
+Prefer the terminal? `startappimage setup --launcher true --handler true --cli true` does the same, and `startappimage integration` prints the current state as JSON. `register` and `unregister` still work.
 
 ## Tour
 
@@ -102,6 +111,7 @@ The command line works on its own too:
 | `startappimage list [--json]` | Lists installed apps |
 | `startappimage check [--json]`, `update [APP]` | Looks for updates, installs them |
 | `startappimage config APP`, `set APP …` | Reads or changes an app's settings (`--name`, `--dir`, `--args`, `--source`, `--hidden`) |
+| `startappimage setup [--launcher B] [--handler B] [--cli B]`, `integration` | Switches the launcher entry, file handler and command-line link on or off (`B` is `true` or `false`), or prints which are on |
 | `startappimage remove APP` | Uninstalls an app and everything that was created for it |
 | `startappimage run FILE\|APP` | Runs a file, or an installed app by name |
 | `startappimage info FILE`, `locations` | Prints an AppImage's details, or the known install folders, as JSON |
@@ -133,7 +143,7 @@ To remove it, uninstall the apps you no longer want from the manager first, then
 omarchy plugin remove io.github.bmaltais.startappimage
 ```
 
-`unregister` removes the launcher entry, the icon and the file-type association. Apps you installed stay installed and keep working.
+`unregister` switches off all three setup choices: it removes the launcher entry and icon, gives the file-type association back to the app that had it, and deletes the `~/.local/bin/startappimage` link if it is ours. Apps you installed stay installed and keep working.
 
 ## A different take
 
