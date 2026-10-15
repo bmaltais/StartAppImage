@@ -168,30 +168,43 @@ Item {
       visible: view.svc.apps.length > 0
     }
 
-    // List
-    ListView {
-      id: list
+    // List, with a scroll bar when there are more apps than fit
+    RowLayout {
       Layout.fillWidth: true
       Layout.fillHeight: true
-      Layout.preferredHeight: contentHeight
-      clip: true
-      spacing: Style.spacing.lg
-      model: view.rows
+      Layout.preferredHeight: list.contentHeight
       visible: view.rows.length > 0
-      currentIndex: view.cursor
-      onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+      spacing: Style.spacing.md
 
-      delegate: AppRow {
-        width: ListView.view.width
-        app: modelData
-        current: index === view.cursor
-        updateTo: view.svc.updates[modelData.id] || ""
-        busy: view.svc.busyId === modelData.id || (view.svc.busyId === "*" && updateTo !== "")
-        onOpenRequested: view.svc.openApp(modelData)
-        onUpdateRequested: view.svc.updateApp(modelData.id)
-        onRemoveRequested: view.svc.removeApp(modelData.id)
-        onSettingsRequested: view.svc.showSettings(modelData)
-        onSelectRequested: { view.cursor = index; search.forceActiveFocus() }
+      ListView {
+        id: list
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        Layout.preferredHeight: contentHeight
+        clip: true
+        spacing: Style.spacing.lg
+        model: view.rows
+        currentIndex: view.cursor
+        onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+
+        delegate: AppRow {
+          width: ListView.view.width
+          app: modelData
+          current: index === view.cursor
+          updateTo: view.svc.updates[modelData.id] || ""
+          busy: view.svc.busyId === modelData.id || (view.svc.busyId === "*" && updateTo !== "")
+          onOpenRequested: view.svc.openApp(modelData)
+          onUpdateRequested: view.svc.updateApp(modelData.id)
+          onRemoveRequested: view.svc.removeApp(modelData.id)
+          onSettingsRequested: view.svc.showSettings(modelData)
+          onSelectRequested: { view.cursor = index; search.forceActiveFocus() }
+        }
+      }
+
+      ScrollTrack {
+        target: list
+        Layout.fillHeight: true
+        Layout.preferredWidth: implicitWidth
       }
     }
 
