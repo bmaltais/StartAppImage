@@ -28,7 +28,6 @@ SettingsWindow {
   property var vals: ({})
   values: view.vals
 
-
   function refreshVals() {
     var c = view.cfg
     view.vals = { name: c.name || "", show: c.hidden !== true, args: c.args || "",

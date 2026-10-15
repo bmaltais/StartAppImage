@@ -80,7 +80,7 @@ slug() { tr '[:upper:] ' '[:lower:]-' <<<"$1" | tr -cd 'a-z0-9._-'; }
 # Commands go through rec_* and never spell these paths themselves, so the layout lives here and nowhere else.
 #   rec_exists ID / rec_external ID      is it installed / was it adopted rather than installed by us
 #   rec_launcher ID / rec_icon ID        its launcher entry / its icon file (printed if it exists)
-#   rec_install ID FILE ICON_SRC ...     put the AppImage, link and icon in place; prints the icon name for the launcher
+#   rec_install_icon ID FILE             copy the icon in place; prints the icon name for the launcher entry
 #   rec_delete ID                        remove the app and every file of it
 #   refresh_desktop_db                   tell the desktop its launcher entries changed
 db_get() { sed -n "s/^$2=//p" "$DB_DIR/$1.env" | head -n1; }
@@ -303,7 +303,7 @@ cmd_add() {
   set -- ${args[@]+"${args[@]}"}
   [[ $# -ge 1 ]] || die "add: missing source"
   dest=${dest/#\~/$HOME}; dest=${dest%/}
-  [[ "$dest" == "$HOME"/* ]] || die "the install folder must be inside your home directory: $dest"
+  [[ "$dest" == "$HOME"/* ]] || DIE_FIELD=dir die "the install folder must be inside your home directory: $dest"
   need curl
   local src="$1" name="${2:-}" explicit="${2:-}" tmp file version="local" source_rec="local"
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
