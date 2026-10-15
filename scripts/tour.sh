@@ -136,6 +136,7 @@ start_banner() {
     XDG_STATE_HOME="$real_xdg_state" XDG_CACHE_HOME="$real_xdg_cache" \
     TOUR_MODE=status TOUR_TITLE=$TOUR_TITLE TOUR_SCREEN=$orig_mon TOUR_STATUS=$status TOUR_ANSWER="$TMP/cancel.txt" \
     TOUR_NESTED=$($NESTED && echo 1 || echo 0) TOUR_SHIELD=${SHIELD:-0,0,0,0} \
+    TOUR_STRIP_GAP=${NEST_STRIP_GAP:-24} TOUR_STRIP_H=${NEST_STRIP_H:-170} \
     quickshell -n -p "$banner_qml" >/dev/null 2>&1 &
   banner_pid=$!
   # The Cancel button writes to a file; this ends the run when it does (which puts everything back, see cleanup).
@@ -252,22 +253,135 @@ at() {
   fi
   gx=$1; gy=$2
 }
+
+# ---- human-like input -------------------------------------------------------------------------------
+# A person does not move in straight lines at a steady speed or type like a metronome. With TOUR_HUMAN=1 (the default)
+# the pointer and keys behave the way the research and the existing emulators describe:
+#   - Timing follows Fitts's law: the time to reach a target grows with log2(distance / target width + 1).
+#   - Speed follows a minimum-jerk profile (Flash & Hogan 1985): slow start, fast middle, slow arrival.
+#   - The route is a cubic Bezier whose two control points are on the SAME side of the straight line, as in ghost-cursor
+#     (github.com/Xetera/ghost-cursor), so it bows gently one way instead of making an S.
+#   - The wobble is correlated noise like WindMouse's "wind" (github.com/BenLand100's WindMouse, docs at
+#     windmouse.readthedocs.io): each step's wind is the last one divided by sqrt(3) plus a small random kick, so the
+#     pointer drifts smoothly instead of jittering, and it dies away near the target.
+#   - A far target (over 500 px, ghost-cursor's overshootThreshold) is sometimes overshot by a few pixels and corrected.
+#   - It lands a pixel or two off the exact point, and rests a moment before clicking.
+#   - Typing intervals are log-normal, right-skewed with a floor near 60 ms, like the 136-million-keystroke study
+#     (Dhakal et al., CHI 2018: mean 239 ms, SD 112, lower bound about 60 ms, skewness 2; fast typists about 120 ms), a little
+#     quicker when the hands alternate and slower at the start of a word.
+# TOUR_HUMAN=0 gives plain, even motion. TOUR_SEED=N makes the randomness repeatable. docs/recording-tours.md has the sources.
+HUMAN=${TOUR_HUMAN:-1}
+[[ -n ${TOUR_SEED:-} ]] && RANDOM=$TOUR_SEED
+rnd() { awk -v lo="$1" -v hi="$2" -v s="$RANDOM$RANDOM" 'BEGIN { srand(s); printf "%.3f", lo + rand() * (hi - lo) }'; }
+
+# path X0 Y0 X1 Y1: lines of "x y delay" from the first point to the second.
+path() {
+  awk -v x0="$1" -v y0="$2" -v x1="$3" -v y1="$4" -v seed="$RANDOM$RANDOM" 'BEGIN {
+    srand(seed)
+    dx = x1 - x0; dy = y1 - y0; d = sqrt(dx * dx + dy * dy)
+    if (d < 2) { print x1, y1, 0.02; exit }
+    ux = dx / d; uy = dy / d; nx = -uy; ny = ux
+    # overshoot a far target by a few pixels, now and then, then settle back
+    over = (d > 500 && rand() < 0.3) ? 2 + rand() * 3 : 0
+    tx = x1 + ux * over; ty = y1 + uy * over
+    # Fitts: movement time = a + b * log2(d / w + 1), with w about 40 px (a button) and a, b typical of a mouse
+    mt = 0.15 + 0.12 * log(d / 40 + 1) / log(2)
+    n = int(mt * 60); if (n < 12) n = 12; if (n > 60) n = 60
+    # a cubic Bezier with both control points on one side of the line (kept small: at most about 10 px off the line)
+    side = (rand() < 0.5) ? -1 : 1
+    amp = (0.012 + rand() * 0.02) * d; if (amp > 16) amp = 16
+    c1x = x0 + dx * 0.30 + nx * side * amp * (0.6 + rand() * 0.8); c1y = y0 + dy * 0.30 + ny * side * amp * (0.6 + rand() * 0.8)
+    c2x = x0 + dx * 0.70 + nx * side * amp * (0.6 + rand() * 0.8); c2y = y0 + dy * 0.70 + ny * side * amp * (0.6 + rand() * 0.8)
+    wx = 0; wy = 0
+    r3 = sqrt(3); r5 = sqrt(5)
+    for (i = 1; i <= n; i++) {
+      t = i / n
+      s = 10 * t^3 - 15 * t^4 + 6 * t^5          # minimum jerk
+      u = 1 - s
+      bx = u^3 * x0 + 3 * u^2 * s * c1x + 3 * u * s^2 * c2x + s^3 * tx
+      by = u^3 * y0 + 3 * u^2 * s * c1y + 3 * u * s^2 * c2y + s^3 * ty
+      # WindMouse-style wind: last wind / sqrt(3) plus a small kick, fading out towards the end
+      wx = wx / r3 + (2 * rand() - 1) * 0.9 / r5; wy = wy / r3 + (2 * rand() - 1) * 0.9 / r5
+      fade = (i < n) ? ((t < 0.9) ? 1 : (1 - t) / 0.1) : 0
+      px = bx + wx * 2.2 * fade; py = by + wy * 2.2 * fade
+      printf "%d %d %.3f\n", px + 0.5, py + 0.5, mt / n * (0.8 + 0.4 * rand())
+    }
+    if (over > 0) {
+      for (k = 1; k <= 3; k++) {
+        f = k / 3
+        printf "%d %d %.3f\n", tx + (x1 - tx) * f + 0.5, ty + (y1 - ty) * f + 0.5, 0.04 + rand() * 0.05
+      }
+    }
+  }'
+}
+
 glide() {
-  local i x0=$gx y0=$gy
-  for i in 1 2 3 4 5 6 7 8; do at $((x0 + ($1 - x0) * i / 8)) $((y0 + ($2 - y0) * i / 8)); sleep 0.025; done
+  lead_wait
+  local x y dl
+  if [[ $HUMAN != 1 ]]; then
+    local i x0=$gx y0=$gy
+    for i in 1 2 3 4 5 6 7 8; do at $((x0 + ($1 - x0) * i / 8)) $((y0 + ($2 - y0) * i / 8)); sleep 0.025; done
+    return
+  fi
+  while read -r x y dl; do at "$x" "$y"; sleep "$dl"; done < <(path "$gx" "$gy" "$1" "$2")
+  # Settles within a pixel or two of the exact point, as a hand does: a click uses where the pointer is.
+  x=$(awk -v t="$1" -v s="$RANDOM$RANDOM" 'BEGIN { srand(s); printf "%d", t + int(rand() * 5) - 2 }')
+  y=$(awk -v t="$2" -v s="$RANDOM$RANDOM" 'BEGIN { srand(s); printf "%d", t + int(rand() * 5) - 2 }')
+  at "$x" "$y"
 }
 click() {
-  glide "$1" "$2"; sleep 0.35
-  if $NESTED; then nest_click "$1" "$2"; else ydotool click 0xC0 >/dev/null; fi
+  glide "$1" "$2"
+  if [[ $HUMAN == 1 ]]; then sleep "$(rnd 0.15 0.45)"; else sleep 0.35; fi
+  # Clicks where the pointer is, which a person lands within a pixel or two of the target.
+  if $NESTED; then nest_click "$gx" "$gy"; else ydotool click 0xC0 >/dev/null; fi
   sleep "${3:-0.9}"
 }
 drag() {
+  lead_wait
   if $NESTED; then nest_drag "$1" "$2"; sleep 0.6; return; fi
-  local i
-  ydotool click 0x40 >/dev/null; sleep 0.2
-  for i in 1 2 3 4 5 6 7 8 9 10; do ydotool mousemove -x $(($1 / 10)) -y $(($2 / 10)) >/dev/null; sleep 0.05; done
+  local i f px=0 py=0 nx ny
+  ydotool click 0x40 >/dev/null; sleep "$([[ $HUMAN == 1 ]] && rnd 0.12 0.3 || echo 0.2)"
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    if [[ $HUMAN == 1 ]]; then
+      f=$(awk -v i="$i" 'BEGIN { t = i / 10; printf "%.4f", t * t * (3 - 2 * t) }')
+      nx=$(awk -v d="$1" -v f="$f" 'BEGIN { printf "%d", d * f }'); ny=$(awk -v d="$2" -v f="$f" 'BEGIN { printf "%d", d * f }')
+      ydotool mousemove -x $((nx - px)) -y $((ny - py)) >/dev/null; px=$nx; py=$ny
+      sleep "$(rnd 0.035 0.075)"
+    else
+      ydotool mousemove -x $(($1 / 10)) -y $(($2 / 10)) >/dev/null; sleep 0.05
+    fi
+  done
   sleep 0.2; ydotool click 0x80 >/dev/null; sleep 0.6
 }
+# Typing, a character at a time. Each gap is log-normal (right-skewed, never under about 60 ms), around 140 ms for a
+# fairly fast typist; a little quicker when the next key is under the other hand and slower after a space, when a person
+# is reading ahead (see the sources in docs/recording-tours.md).
+type_chars() { # TEXT SENDER... : the sender is called with each character
+  local text=$1 i c prev="" d
+  shift
+  for ((i = 0; i < ${#text}; i++)); do
+    c=${text:i:1}
+    "$@" "$c"
+    d=$(awk -v c="$c" -v p="$prev" -v s="$RANDOM$RANDOM" 'BEGIN {
+      srand(s)
+      u1 = rand(); if (u1 < 1e-9) u1 = 1e-9; u2 = rand()
+      z = sqrt(-2 * log(u1)) * cos(6.2831853 * u2)        # a normal draw
+      d = 0.118 * exp(0.42 * z)                           # log-normal, median 118 ms, mean about 130 ms
+      left = "qwertasdfgzxcvb12345"
+      hc = (index(left, c) > 0) ? "L" : "R"; hp = (index(left, p) > 0) ? "L" : "R"
+      if (p != "" && c != " " && p != " " && hc != hp) d *= 0.93      # the hands alternate: faster
+      if (p != "" && c != " " && p != " " && hc == hp) d *= 1.06
+      if (c == " ") d *= 1.35                                          # reading ahead at a word boundary
+      if (d < 0.06) d = 0.06 + rand() * 0.01                          # about 60 ms is the floor
+      if (d > 0.9) d = 0.9
+      printf "%.3f", d
+    }')
+    sleep "$d"
+    prev=$c
+  done
+}
+_wtype_one() { WAYLAND_DISPLAY=$NWD wtype -- "$1"; }
+_ydotool_one() { ydotool type -- "$1" >/dev/null; }
 # Keys and typing only while the app's window is up on the virtual monitor: otherwise they would go to the
 # backdrop window.
 overlay_up() {
@@ -280,10 +394,16 @@ key() {
   if overlay_up; then ydotool key "$@" >/dev/null; else echo "tour: window not up, skipped keys $*" >&2; fi
 }
 typed() {
+  lead_wait
   if ! overlay_up; then echo "tour: window not up, skipped typing" >&2; return; fi
-  if $NESTED; then nest_type "$1"; else ydotool type --key-delay 45 "$1" >/dev/null; fi
+  if [[ $HUMAN == 1 ]]; then
+    if $NESTED; then type_chars "$1" _wtype_one; else type_chars "$1" _ydotool_one; fi
+  elif $NESTED; then nest_type "$1"
+  else ydotool type --key-delay 45 "$1" >/dev/null
+  fi
 }
 esc() {
+  lead_wait
   if ! overlay_up; then echo "tour: window not up, skipped keys esc" >&2; return; fi
   if $NESTED; then nest_key Escape; else ydotool key 1:1 1:0 >/dev/null; fi
 }
@@ -293,10 +413,45 @@ wait_until() { local i; for ((i = 0; i < ${2:-30} * 2; i++)); do eval "$1" >/dev
 caps="$TMP/captions.txt"
 : >"$caps"
 step=0
+# Reading time. A caption has to stay up long enough to be read, and people read slowly when the picture is moving too.
+# The average adult reads 238 words a minute (Brysbaert 2019, a meta-analysis of 190 studies; most adults 175 to 300),
+# and subtitle standards run at about 160 to 180 words a minute (BBC) or 17 to 20 characters a second (Netflix). A caption
+# is therefore held for 0.8 s to notice it (and 0.15 s of gap before the next one) plus its words at TOUR_READ_WPM (default
+# 150, slower than all of those), and never under 2.5 s. TOUR_READ_WPM=0 turns the minimum off. The tour waits out what is missing before the next caption.
+READ_WPM=${TOUR_READ_WPM:-150}
+cap_t0=""
+cap_hold=0
+cap_say=""
+hold_wait() { # waits until the current caption has been up long enough to read
+  [[ -n $cap_t0 ]] || return 0
+  local left
+  left=$(awk -v t0="$cap_t0" -v hold="$cap_hold" -v now="$(date +%s.%N)" 'BEGIN { l = t0 + hold - now; printf "%.2f", (l > 0) ? l : 0 }')
+  awk -v l="$left" 'BEGIN { exit !(l > 0) }' && sleep "$left"
+  return 0
+}
+# The reading lead. A viewer reads a new caption before looking at what the pointer does, so the first pointer or key action
+# after a caption waits for the time an average adult needs to read it: 0.5 s to notice it plus its words at TOUR_LEAD_WPM
+# (default 238, the Brysbaert average), a little different each time. Opening a window is not input, so it appears with the
+# caption and there is something to look at while reading. TOUR_LEAD_WPM=0 turns the lead off.
+LEAD_WPM=${TOUR_LEAD_WPM:-238}
+lead_until=""
+lead_wait() {
+  [[ -n $lead_until ]] || return 0
+  local left
+  left=$(awk -v u="$lead_until" -v now="$(date +%s.%N)" 'BEGIN { l = u - now; printf "%.2f", (l > 0) ? l : 0 }')
+  awk -v l="$left" 'BEGIN { exit !(l > 0) }' && sleep "$left"
+  lead_until=""
+  return 0
+}
 cap() {
+  hold_wait
   step=$((step + 1))
   printf '%s|%s\n' "$(date +%s%N)" "$1" >>"$caps"
   say "Step $step${TOUR_STEPS:+ of $TOUR_STEPS}: $1"
+  cap_t0=$(date +%s.%N)
+  cap_say=$1
+  lead_until=$(awk -v t0="$cap_t0" -v w="$(wc -w <<<"$1")" -v wpm="$LEAD_WPM" -v s="$RANDOM$RANDOM" 'BEGIN { if (wpm <= 0) { print ""; exit } srand(s); printf "%.2f", t0 + (0.5 + w * 60 / wpm) * (0.9 + rand() * 0.3) }')
+  cap_hold=$(awk -v w="$(wc -w <<<"$1")" -v wpm="$READ_WPM" 'BEGIN { if (wpm <= 0) { print 0; exit } h = 0.95 + w * 60 / wpm; if (h < 2.5) h = 2.5; printf "%.2f", h }')
 }
 
 (while :; do grim -c -t jpeg -q 90 -o "$CAPMON" "$TMP/frames/$(date +%s%N).jpg"; done) &
@@ -304,6 +459,7 @@ rec_pid=$!
 sleep 0.6
 say "Starting the tour"
 tour_play
+hold_wait
 kill "$rec_pid" 2>/dev/null; wait "$rec_pid" 2>/dev/null
 rec_pid=""
 # Filming is over: give the screen, mouse and keyboard back now, and say that the GIF is being built.
@@ -340,6 +496,8 @@ while IFS='|' read -r ts text; do
   else
     end=$dur
   fi
+  words=$(wc -w <<<"$text")
+  echo "tour: caption $i ($words words) on screen $(awk -v a="$start" -v b="$end" 'BEGIN { printf "%.1f", b - a }') s (reading time $(awk -v w="$words" -v wpm="$READ_WPM" 'BEGIN { h = 0.95 + w * 60 / wpm; if (h < 2.5) h = 2.5; printf "%.1f", h }') s)" >&2
   vf+="drawtext=fontfile=$TOUR_FONT:text='$text':fontsize=24:fontcolor=white:box=1:boxcolor=0x13151f@0.88:boxborderw=14:x=(w-text_w)/2:y=h-70:enable='between(t,$start,$end)',"
 done <"$caps"
 ffmpeg -loglevel error -y -ss 0.4 -i "$TMP/tour.mp4" \

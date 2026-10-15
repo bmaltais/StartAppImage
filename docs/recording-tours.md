@@ -9,6 +9,8 @@ How to record a short GIF that shows an app being used, with `scripts/tour.sh`. 
 - [Reference](#reference)
 - [How it works inside](#how-it-works-inside)
 - [Troubleshooting](#troubleshooting)
+- [Human-like input](#human-like-input)
+- [Reading time](#reading-time)
 - [Nested mode](#nested-mode---nested)
 - [Using it in another Start app](#using-it-in-another-start-app)
 
@@ -178,6 +180,44 @@ Other commands in `tour_play` are ordinary shell: opening the app (`omarchy-shel
 - **A "Process crashed: xdg-desktop-portal-hyprland" notice** (in `--nested` mode): a portal started inside the nested session and died when its compositor went. The recorder now gives the nested session a D-Bus that starts nothing by itself and stops its processes before the compositor, so this should not appear; if it does, `coredumpctl list` shows which process, and the notice (critical, so it stays up) can be cleared with `omarchy-notification-dismiss "Process crashed"`.
 - **Your pointer jumped**: it is on the virtual monitor for the length of the tour, and goes back to where it was at the end.
 
+## Human-like input
+
+People do not move a mouse in straight lines at a steady speed or type at metronome intervals, and a GIF of a robot looks fake. By default (`TOUR_HUMAN=1`) the recorder moves and types the way the research and the existing emulators describe. `TOUR_HUMAN=0` gives plain, even motion; `TOUR_SEED=N` makes the randomness repeatable for a run you want to reproduce.
+
+**The pointer** (`glide`, `click`, `drag` in `scripts/tour.sh`, `scripts/nested/vptr.c`):
+
+| What a person does | How it is modelled | From |
+|---|---|---|
+| Longer or smaller targets take longer | Movement time = 0.15 + 0.12 · log2(distance / 40 + 1) seconds, so a 100 px move takes about 0.3 s and a 1,100 px move about 0.9 s. The constants are typical mouse values I chose, not measurements of anyone | Fitts's law |
+| Starts slowly, is fastest in the middle, arrives slowly | The position follows the minimum-jerk curve 10t³ − 15t⁴ + 6t⁵ | Flash & Hogan 1985 |
+| A gently curved route, not an S | A cubic Bézier whose two control points are on the same side of the straight line, at most about 15 px off it | [ghost-cursor](https://github.com/Xetera/ghost-cursor) |
+| Drifts a little as the hand moves | Correlated noise like WindMouse's "wind": each step's wind is the last one divided by √3 plus a small random kick, fading out near the target | [WindMouse](https://windmouse.readthedocs.io/en/latest/algorithm.html) |
+| Overshoots a far target and corrects | A move over 500 px overshoots by 2 to 5 px in about 30% of cases, then settles back in three small steps (500 px is ghost-cursor's `overshootThreshold`) | ghost-cursor |
+| Does not hit the exact pixel | The pointer settles within 2 px of the target, and clicks where it is | ghost-cursor (random point in the element) |
+| Rests before clicking | A random 0.15 to 0.45 s pause | |
+
+**Typing** (`type_chars`): one key at a time, each gap drawn from a **log-normal** distribution (median 118 ms, so a mean near 130 to 140 ms, like a fairly fast typist), never below about 60 ms, a little quicker when the next key is under the other hand (about 7%), a little slower when it is under the same hand (about 6%), and 35% slower after a space, where a person reads ahead. In a test of 408 gaps this gave a mean of 138 ms, a median of 123, a minimum of 64 and a skewness of 1.7. Those figures come from the study the model is built on:
+
+- Dhakal, Feit, Kristensson and Oulasvirta, **["Observations on Typing from 136 Million Keystrokes"](https://userinterfaces.aalto.fi/136Mkeystrokes/)**, CHI 2018 ([paper](https://www.pokristensson.com/pubs/DhakalEtAlCHI2018.pdf)). Their 168,000 typists averaged 51.6 words per minute and a **mean inter-key interval of 238.7 ms (SD 111.6) with a lower bound near 60 ms**; the distribution is right-skewed (skewness 1.98); fast typists average about 120 ms; key presses last about 116 ms whoever is typing; and hand alternation predicts speed better than repeated letters. The tour deliberately types faster than the average person, so it reads well in a GIF.
+
+**Not modelled** (so you know the limits): typing mistakes and corrections, key rollover (pressing the next key before releasing the last, which the study found in 25% of keystrokes), key-press duration, pauses to think, and a pointer that wanders while "resting". A step that waits (`sleep`) still waits exactly that long.
+
+## Reading time
+
+A caption that vanishes before it can be read is useless, and a viewer reads a new caption before looking at what the pointer does. Both are modelled from reading research, and both can be tuned:
+
+| What | Rule | Default |
+|---|---|---|
+| **How long a caption stays up** (`TOUR_READ_WPM`) | Held at least 0.95 s (to notice it, plus the 0.15 s gap before the next) plus its words at 150 words a minute, and never under 2.5 s. A 10-word caption is up at least 5 s; a 14-word one 6.5 s. The tour waits out what is missing before the next caption. `0` turns it off | 150 |
+| **How long the pointer waits before it moves** (`TOUR_LEAD_WPM`) | The first pointer or key action after a caption waits 0.5 s plus the caption's words at 238 words a minute (a little different each time, ×0.9 to ×1.2): about 3 s for 10 words. Opening a window is not input, so it appears with the caption and there is something to look at while reading. `0` turns it off | 238 |
+
+The numbers come from:
+
+- Brysbaert, **["How many words do we read per minute? A review and meta-analysis of reading rate"](https://www.gwern.net/doc/psychology/linguistics/2019-brysbaert.pdf)**, *Journal of Memory and Language*, 2019: 190 studies and 18,573 participants give an average silent reading rate for English adults of **238 words a minute** for non-fiction (260 for fiction), with most adults between 175 and 300; children, older adults and people reading in a second language are slower. The *lead* uses the average, the *hold* uses 150, well below the slow end, because a viewer is also following a moving picture.
+- **Subtitle standards**, the closest everyday case of short text on a moving picture: the BBC's are described as 160 to 180 words a minute and Netflix's English guide as at most 20 characters a second for adults (17 for children), with a minimum of about 0.83 s per subtitle. I read these from secondary summaries ([Nimdzi](https://www.nimdzi.com/speed-in-audiovisual-translation/), [Titlevision](https://titlevision.dk/sm/reading_speed.htm)), not from the guides themselves, so check the current guides if you depend on the exact figures.
+
+The tour prints the result for each caption (`tour: caption 3 (4 words) on screen 4.3 s (reading time 2.5 s)`), so you can see that every caption was up long enough. Reading time is why the StartAppImage tour is about 75 seconds and not 50.
+
 ## Nested mode (`--nested`)
 
 The default mode films a hidden virtual monitor and drives your **real** mouse and keyboard, so you cannot use them while it runs, and it changes your real app and settings and puts them back afterwards. `--nested` removes all three problems:
@@ -194,7 +234,7 @@ scripts/hero.sh --nested             # or: scripts/tour.sh TOURFILE --nested
 
 ### Extra requirements
 
-`Hyprland` (you are in it), `dbus-run-session`, `wtype`, and `gcc`, `wayland-scanner` and `pkg-config` with the Wayland client library (to build the pointer client; Arch: `wayland`, `wayland-protocols`, `gcc`). The monitor needs about 1000 pixels of height for the window plus its status strip (the nested window is 1280×800 and sits 190 pixels from the top). The recorder checks and says what is missing.
+`Hyprland` (you are in it), `dbus-run-session`, `wtype`, and `gcc`, `wayland-scanner` and `pkg-config` with the Wayland client library (to build the pointer client; Arch: `wayland`, `wayland-protocols`, `gcc`). The monitor needs about 1,050 pixels of height: the nested window is 1280×800 and goes below the status strip (24 px gap, 170 px high), its own title bar (30 px) and a 10 px margin, so it starts 234 px from the top. These are worked out from the strip's size in `scripts/nested/session.sh`, and the strip reads its size from the same place, so they cannot drift apart. If the monitor is too short the recorder says by how much the two will overlap. The recorder checks and says what is missing.
 
 ### What a tour file adds for `--nested`
 

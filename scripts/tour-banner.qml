@@ -39,6 +39,9 @@ ShellRoot {
 
   readonly property bool nested: Quickshell.env("TOUR_NESTED") === "1"
   readonly property var shield: (Quickshell.env("TOUR_SHIELD") || "0,0,0,0").split(",").map(Number)
+  // The strip's place and height come from the recorder (scripts/nested/session.sh), which puts the nested window below it.
+  readonly property int stripGap: Number(Quickshell.env("TOUR_STRIP_GAP")) || 24
+  readonly property int stripHeight: Number(Quickshell.env("TOUR_STRIP_H")) || 170
   readonly property color red: "#c62828"
   readonly property color green: "#2e7d32"
 
@@ -67,13 +70,13 @@ ShellRoot {
     // Not nested: no anchors, so a layer-shell window is centred on its screen. Nested: a strip along the top, above
     // the nested window.
     anchors.top: root.nested && root.mode === "status"
-    margins.top: 24
+    margins.top: root.stripGap
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.namespace: "start-tour-banner"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: root.mode === "confirm" ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
     implicitWidth: root.nested && root.mode === "status" ? Math.max(760, root.shield[2]) : 760
-    implicitHeight: root.nested && root.mode === "status" ? (root.over ? 124 : 170) : col.implicitHeight + 72
+    implicitHeight: root.nested && root.mode === "status" ? (root.over ? Math.min(124, root.stripHeight) : root.stripHeight) : col.implicitHeight + 72
     color: "transparent"
 
     Rectangle {

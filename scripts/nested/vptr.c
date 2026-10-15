@@ -59,10 +59,14 @@ int main(int argc, char **argv) {
     usleep(80000);
     zwlr_virtual_pointer_v1_button(ptr, now_ms(), BTN_LEFT, WL_POINTER_BUTTON_STATE_PRESSED);
     zwlr_virtual_pointer_v1_frame(ptr);
-    for (int i = 1; i <= 10; i++) {
+    // Eased (slow, quick, slow), with the odd pixel of wobble and an uneven pace, like a hand.
+    srand((unsigned)now_ms());
+    for (int i = 1; i <= 14; i++) {
+      double t = i / 14.0, e = t * t * t * (10 - 15 * t + 6 * t * t);   /* minimum jerk */
+      int wx = (i < 14) ? rand() % 3 - 1 : 0, wy = (i < 14) ? rand() % 3 - 1 : 0;
       wl_display_roundtrip(display);
-      usleep(50000);
-      zwlr_virtual_pointer_v1_motion_absolute(ptr, now_ms(), (uint32_t)((int)x + dx * i / 10), (uint32_t)((int)y + dy * i / 10), w, h);
+      usleep(35000 + (unsigned)(rand() % 40000));
+      zwlr_virtual_pointer_v1_motion_absolute(ptr, now_ms(), (uint32_t)((int)x + (int)(dx * e) + wx), (uint32_t)((int)y + (int)(dy * e) + wy), w, h);
       zwlr_virtual_pointer_v1_frame(ptr);
     }
     wl_display_roundtrip(display);

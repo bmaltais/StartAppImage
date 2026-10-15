@@ -284,17 +284,18 @@ Item {
     root.close()
   }
 
-  function runAction(args, busy, done) {
+  function runAction(args, busy, done, updated) {
     if (actionProc.running) return
     root.busyId = busy
+    actionProc.updated = updated || ""
     actionProc.done = done
     actionProc.last = ""
     actionProc.command = [root.cli].concat(args)
     actionProc.running = true
   }
 
-  function updateApp(id) { root.runAction(["update", id], id, "Updated") }
-  function updateAll() { root.runAction(["update"], "*", "Everything is up to date") }
+  function updateApp(id) { root.runAction(["update", id], id, "Updated", id) }
+  function updateAll() { root.runAction(["update"], "*", "Everything is up to date", "*") }
   function removeApp(id) { root.runAction(["remove", id], id, "Uninstalled") }
   function addSource(source) { root.runAction(["add", source], "+", "Installed") }
 
@@ -499,10 +500,17 @@ Item {
     id: actionProc
     property string done: ""
     property string last: ""
+    property string updated: ""     // the app (or "*" for all) an update was run for
     stdout: SplitParser { onRead: line => actionProc.last = line }
     stderr: SplitParser { onRead: line => actionProc.last = line }
     onExited: code => {
       root.busyId = ""
+      // An update that worked is no longer waiting. Say so at once: until the check below finishes, the row would
+      // otherwise show "Update available" again for a moment, as if the click had not taken.
+      if (code === 0 && actionProc.updated !== "") {
+        if (actionProc.updated === "*") root.updates = ({})
+        else { var next = Object.assign({}, root.updates); delete next[actionProc.updated]; root.updates = next }
+      }
       root.say(code === 0 ? done : (last !== "" ? last : "Something went wrong"), code !== 0)
       root.refresh()
       root.check()
