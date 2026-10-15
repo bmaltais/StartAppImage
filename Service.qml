@@ -495,6 +495,21 @@ Item {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
+    // The card opens centred; dragging its top strip moves it. The offsets are from
+    // the centre, so the card stays where it was put when its size changes between views.
+    property real dragX: 0
+    property real dragY: 0
+    onVisibleChanged: if (visible) { win.dragX = 0; win.dragY = 0 }
+    // Keeps the card on the screen: at least the top strip stays reachable.
+    function moveBy(dx, dy) {
+      var grab = Style.space(60)
+      var maxX = (win.width + frame.width) / 2 - grab
+      var minY = -(win.height - frame.height) / 2
+      var maxY = (win.height + frame.height) / 2 - grab
+      win.dragX = Math.max(-maxX, Math.min(maxX, win.dragX + dx))
+      win.dragY = Math.max(minY, Math.min(maxY, win.dragY + dy))
+    }
+
     // Click outside the card to dismiss it.
     Rectangle {
       anchors.fill: parent
@@ -513,6 +528,8 @@ Item {
     Rectangle {
       id: frame
       anchors.centerIn: parent
+      anchors.horizontalCenterOffset: win.dragX
+      anchors.verticalCenterOffset: win.dragY
       width: root.view === "manager" ? Style.space(640) : Style.space(520)
       height: root.view === "install" ? installView.implicitHeight
         : root.view === "setup" ? setupView.implicitHeight
@@ -527,6 +544,23 @@ Item {
 
       // Swallow clicks so they do not reach the dismiss area behind the card.
       MouseArea { anchors.fill: parent }
+
+      // Drag the top strip to move the card. The card moves with the pointer, so the
+      // pointer's place on it stays put and each move is the distance from the press.
+      // Declared before the views so their own buttons and fields sit above it.
+      MouseArea {
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: Style.space(60)
+        cursorShape: pressed ? Qt.ClosedHandCursor : Qt.ArrowCursor
+        property real pressX: 0
+        property real pressY: 0
+        onPressed: function (mouse) { pressX = mouse.x; pressY = mouse.y }
+        onPositionChanged: function (mouse) {
+          if (pressed) win.moveBy(mouse.x - pressX, mouse.y - pressY)
+        }
+      }
 
       ManagerView {
         id: managerView
