@@ -149,12 +149,19 @@ Item {
     root.close()
   }
 
-  function applySetup(launcher, handler, cli, hours, rsize, rpos, barIcon) {
+  // Setup changes go one at a time, in the order they were made; the settings window
+  // stays open, and reads the real state back once the last one is done.
+  property var setupQueue: []
+  function applySetting(args) {
+    root.setupQueue = root.setupQueue.concat([args])
+    root.runNextSetup()
+  }
+  function runNextSetup() {
     if (setupProc.running) return
+    if (root.setupQueue.length === 0) { root.setupBusy = false; integProc.running = true; return }
     root.setupBusy = true
-    setupProc.command = [root.cli, "setup", "--launcher", String(launcher), "--handler", String(handler), "--cli", String(cli), "--check-hours", String(hours),
-      "--remember-size", String(rsize), "--remember-position", String(rpos),
-      "--bar-icon", String(barIcon)]
+    setupProc.command = [root.cli, "setup"].concat(root.setupQueue[0])
+    root.setupQueue = root.setupQueue.slice(1)
     setupProc.running = true
   }
 
@@ -305,12 +312,10 @@ Item {
     onStarted: { setupProc.last = ""; console.log("startappimage setup:", JSON.stringify(setupProc.command)) }
     onExited: (code, status) => {
       console.log("startappimage setup exited", code, status, setupProc.last)
-      root.setupBusy = false
-      root.close()
-      // The card is gone by now, so a failure is also said as a notification.
-      if (code !== 0) Quickshell.execDetached(["notify-send", "-a", "StartAppImage", "-u", "critical", "Setup was not applied",
+      // A change that failed is said as a notification; reading the state back flips its switch back.
+      if (code !== 0) Quickshell.execDetached(["notify-send", "-a", "StartAppImage", "-u", "critical", "Setting was not applied",
         setupProc.last !== "" ? setupProc.last : "exit code " + code])
-      root.say(code === 0 ? "Setup saved" : (setupProc.last !== "" ? setupProc.last : "Setup could not be saved"), code !== 0)
+      root.runNextSetup()
     }
   }
 

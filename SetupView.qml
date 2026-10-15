@@ -1,7 +1,7 @@
 // Settings: pages on the left, the settings of the chosen page on the right, laid out like
 // the StartBar settings window. Shown once after the plugin is enabled, and again from the
-// manager's gear button. Nothing is changed until Apply, because some choices rewrite
-// files outside the plugin (the launcher entry, the file handler, the command line, the bar).
+// manager's gear button. Every change applies the moment it is made, as in StartBar; a change
+// that cannot be made flips back and says why.
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
@@ -76,39 +76,44 @@ Item {
     return out
   }
 
+  // The command-line options that make each setting happen.
+  readonly property var flags: ({
+    launcher: "--launcher", handler: "--handler", cli: "--cli", barIcon: "--bar-icon",
+    hours: "--check-hours", rsize: "--remember-size", rpos: "--remember-position"
+  })
+
   function setValue(key, value) {
     var next = Object.assign({}, view.vals)
     next[key] = value
     view.vals = next
+    view.svc.applySetting([view.flags[key], String(value)])
   }
 
-  // First time: everything on except the bar icon. Replacing another app's role is safe
-  // because the previous one is remembered and given back when this is switched off.
-  // Afterwards: what is switched on right now.
-  function load() {
+  // What is switched on right now, read back from the system.
+  function refreshVals() {
     var i = view.integ
     if (!i.cli) return
-    view.page = 0
-    view.query = ""
-    if (i.done) {
-      view.vals = { launcher: i.launcher, handler: i.handler.ours, cli: i.cli.state === "ours",
-        barIcon: i.barIcon, hours: i.checkHours, rsize: i.rememberSize, rpos: i.rememberPosition }
-    } else {
-      view.vals = { launcher: true, handler: true, cli: !view.cliBlocked,
-        barIcon: false, hours: 6, rsize: true, rpos: true }
-    }
+    view.vals = { launcher: i.launcher, handler: i.handler.ours, cli: i.cli.state === "ours",
+      barIcon: i.barIcon, hours: i.checkHours, rsize: i.rememberSize, rpos: i.rememberPosition }
   }
-  onVisibleChanged: if (visible) view.load()
+  onVisibleChanged: if (visible) { view.page = 0; view.query = ""; view.confirmingReset = false; view.refreshVals() }
   Connections {
     target: view.svc
-    function onIntegChanged() { if (view.visible) view.load() }
+    // Not while changes are still being made: the read-back would undo a click.
+    function onIntegChanged() { if (view.visible && !view.svc.setupBusy) view.refreshVals() }
   }
   onPageChanged: body.contentY = 0
   onQueryChanged: body.contentY = 0
 
-  function apply() {
-    var v = view.vals
-    view.svc.applySetup(v.launcher, v.handler, v.cli && !view.cliBlocked, v.hours, v.rsize, v.rpos, v.barIcon)
+  // The recommended set, in one go: what a first run offers, and what Reset goes back to.
+  property bool confirmingReset: false
+  Timer { id: resetTimer; interval: 3000; onTriggered: view.confirmingReset = false }
+  function applyDefaults() {
+    var v = { launcher: true, handler: true, cli: !view.cliBlocked, barIcon: false, hours: 6, rsize: true, rpos: true }
+    view.vals = v
+    var args = []
+    for (var k in v) args.push(view.flags[k], String(v[k]))
+    view.svc.applySetting(args)
   }
 
   readonly property color hairline: Util.alpha(Color.foreground, 0.14)
@@ -411,7 +416,7 @@ Item {
       anchors.rightMargin: Style.spacing.lg
       anchors.verticalCenter: parent.verticalCenter
       elide: Text.ElideRight
-      text: view.integ.done ? "Changes apply when you press Apply" : "First time here: choose what to switch on, then press Apply"
+      text: view.integ.done ? "Changes apply instantly" : "Choose what to switch on. Changes apply instantly."
       color: Util.alpha(Color.foreground, 0.55)
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
@@ -423,15 +428,27 @@ Item {
       anchors.rightMargin: Style.spacing.lg
       anchors.verticalCenter: parent.verticalCenter
       spacing: Style.spacing.lg
+      // A first run offers the recommended set in one click, or to leave it for later.
       Button {
+        visible: !view.integ.done
         text: "Not now"
         bordered: true
         onClicked: view.svc.skipSetup()
       }
       Button {
-        text: view.svc.setupBusy ? "Applying..." : "Apply"
+        visible: !view.integ.done
+        text: "Enable recommended"
         selected: true
-        onClicked: view.apply()
+        onClicked: view.applyDefaults()
+      }
+      Button {
+        visible: !!view.integ.done
+        text: view.confirmingReset ? "Click again to reset everything" : "Reset to defaults"
+        bordered: true
+        onClicked: {
+          if (view.confirmingReset) { view.confirmingReset = false; resetTimer.stop(); view.applyDefaults() }
+          else { view.confirmingReset = true; resetTimer.restart() }
+        }
       }
     }
   }
