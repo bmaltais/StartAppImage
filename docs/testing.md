@@ -8,27 +8,19 @@ How a change gets checked, from the cheapest check to trying it in a live shell.
 | run only the command-line tests | `tests/cli.sh [word ...]` | no: a throwaway `$HOME` |
 | see the plugin run, click it, type into it | `scripts/dev` | no: a nested desktop out of reach of your mouse, with a home of its own and a guard in front of its `PATH` |
 | watch that session | `scripts/dev watch` | a view-only window |
-| try it on your own shell | `scripts/reload`, `scripts/pointer.sh` | yes: restarts your shell, moves your pointer |
+| try it on your own shell | `scripts/reload`, `scripts/pointer` | yes: restarts your shell, moves your pointer |
 | look over a recording | `scripts/sheet` | no |
 | record the README animation | `scripts/hero.sh` ([recording-tours.md](recording-tours.md)) | no |
 
-**The rule: test in `scripts/dev`, not on the real desktop.** A click or key sent to the real shell moves your pointer and types into your windows, a shell restart makes the bar blink, and a window left over your pointer can leave it behaving oddly. The test session has none of that. Use `reload` and `pointer.sh` only when the person asks to see it on their real shell.
+**The rule: test in `scripts/dev`, not on the real desktop.** A click or key sent to the real shell moves your pointer and types into your windows, a shell restart makes the bar blink, and a window left over your pointer can leave it behaving oddly. The test session has none of that. Use `reload` and `pointer` only when the person asks to see it on their real shell.
 
 ## 1. Checks: `scripts/check.sh`
 
-One command, no running shell needed. The pre-commit hook runs it and refuses a commit on `main`; CI runs the shell part.
+One command, no running shell needed: `scripts/check.sh` is the devkit's `check` (shell scripts, the devkit's project rules, qmllint, the manifest) plus the steps `devkit_check` adds in `devkit.conf` (`tests/cli.sh` and the icon check). The pre-commit hook runs it and refuses a commit on `main`; CI runs the same, where the QML and manifest steps skip themselves.
 
-```sh
-scripts/check.sh          # all of it
-scripts/lint-sh.sh        # bash -n and shellcheck over every script, the devkit's included (rules in .shellcheckrc)
-scripts/devkit/bin/lint . # the devkit's project rules (a background launch must redirect its output ...)
-scripts/lint-qml.py       # qmllint, failing only on a warning the baseline does not list
-omarchy plugin validate . # the manifest
-```
-
-- **Enable the hook once per clone:** `git config core.hooksPath .githooks`. Override for the rare commit that must go on `main`: `ALLOW_MAIN=1 git commit`.
-- **QML warnings.** `qmllint` cannot see Quickshell's or Omarchy's types, so about ninety warnings are standing noise, kept in `scripts/qmllint-baseline.txt`. A *new* one (a misspelt id, a removed property) fails. If it is a real name from the shell, accept it with `scripts/lint-qml.py --update`. The idea is StartBar's, ported to Python.
-- **Project rules** live in `scripts/check.sh` and the devkit's `bin/lint`: no empty `iconText` (an icon whose glyph was lost in an edit), and no `setsid -f` launch that keeps the caller's output open.
+- **Enable the hook once per clone:** `scripts/devkit/bin/pre-commit --install`. Override for the rare commit that must go on `main`: `ALLOW_MAIN=1 git commit`.
+- **QML warnings.** `scripts/qmllint` fails only on a warning `scripts/qmllint-baseline.txt` does not list; about ninety are standing noise, because `qmllint` cannot see Quickshell's or Omarchy's types. If a new one is a real name from the shell, accept it with `scripts/qmllint --update`. Some warnings are real bugs and can never be baselined (a property that hides one of `Item`'s, such as `state`): rename it.
+- **Project rules** are the devkit's `bin/lint` (no `setsid -f` launch that keeps the caller's output open) and `icons` in `devkit.conf`: no empty `iconText` (an icon whose glyph was lost in an edit).
 - **Command-line tests.** `tests/cli.sh` runs `bin/startappimage` against a throwaway `$HOME` with a fake AppImage and asserts exit codes, JSON and files on disk (add, list, config, set, remove, adopted apps, locations, window, setup). A test is a `t_*` function; name words on the command line select tests. It never touches the network, the real home or the desktop, so it also runs in CI. Update checks against GitHub are not covered yet.
 - **What it cannot catch:** a layout that looks wrong, a click that misses, anything about the live shell. That is what the test session is for.
 
@@ -52,9 +44,9 @@ scripts/dev down                     # always, when done
 
 Runs the whole thing in the session: `up` (with `DEV_SIZE` if you want another screen), window sizes reset in the sandbox, a flat backdrop window behind the cards, `open`, `setup`, `settings`, the install card, `shot` of each, a crop centred on the screen, then `down`. `SHOTS_OUT=DIR` writes elsewhere, for a trial run. The install card needs an `~/Applications` of the session's own, which the script builds, so it shows `~/Applications` and not your home.
 
-## 3. Your real desktop: `scripts/reload`, `scripts/pointer.sh`
+## 3. Your real desktop: `scripts/reload`, `scripts/pointer`
 
-For when someone wants to see the change in their own shell: `scripts/reload` copies this checkout over the installed plugin and restarts the shell (the bar blinks); `scripts/pointer.sh click PX PY` moves the real pointer, so only when asked.
+For when someone wants to see the change in their own shell. `scripts/reload [open | setup | settings APP_ID] [--shot FILE | --check]` is the devkit's `reload`: the plugin is installed as a git clone, so **commit and push the branch first**; it fast-forwards the installed clone to it, restarts the shell (the bar blinks) and reports errors. `scripts/pointer click PX PY` is the devkit's `pointer`: it moves the real pointer, so only when asked.
 
 ## 4. Looking over a recording: `scripts/sheet`
 
@@ -66,10 +58,9 @@ For when someone wants to see the change in their own shell: `scripts/reload` co
 |---|---|
 | `devkit.conf` | what the devkit needs to know about this plugin: its id, layer, sandbox, commands |
 | `scripts/devkit/` | the devkit, a git submodule (clone with `--recurse-submodules`, or `git submodule update --init`; update with `git -C scripts/devkit checkout vX.Y.Z`, then commit): development tooling, so it is not in what a user installs |
-| `scripts/dev`, `scripts/tour.sh`, `scripts/sheet` | two-line wrappers of the devkit's `dev`, `tour`, `sheet` for this checkout |
-| `scripts/check.sh`, `lint-sh.sh`, `lint-qml.py`, `qmllint-baseline.txt`, `.shellcheckrc` | the checks |
-| `.githooks/pre-commit`, `.github/workflows/check.yml` | the hook (refuses `main`, runs the checks) and the CI job (shellcheck, the CLI tests) |
+| `scripts/dev`, `tour.sh`, `sheet`, `reload`, `pointer`, `qmllint`, `check.sh` | two-line wrappers of the devkit's `dev`, `tour`, `sheet`, `reload`, `pointer`, `qmllint`, `check` for this checkout |
+| `scripts/qmllint-baseline.txt`, `.shellcheckrc` | the standing QML warnings, and the shellcheck rules |
+| `.githooks/pre-commit`, `.github/workflows/check.yml` | the hook (refuses `main`, runs the checks) and the CI job (the devkit's `app-check.yml`) |
 | `tests/cli.sh` | the command-line behaviour tests |
 | `scripts/screenshots.sh`, `scripts/preview.sh` | the README screenshots and the marketplace picture |
 | `scripts/tours/`, `scripts/hero.sh` | this app's tour ([recording-tours.md](recording-tours.md)) |
-| `scripts/reload`, `scripts/pointer.sh` | for the real desktop |
