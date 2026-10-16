@@ -23,7 +23,7 @@
 | `scripts/dev`, `sheet`, `reload`, `pointer` | Testing tools, all wrappers of the devkit's in `scripts/devkit`: a nested test session, contact sheets, the real-shell reload, a pointer click. See `docs/testing.md` |
 | `tests/cli.sh` | Behaviour tests for `bin/startappimage` in a throwaway `$HOME`; part of `scripts/check.sh` and CI |
 | `docs/testing.md` | How a change is checked and tried, and what went wrong before |
-| `docs/ui-standards.md` | How the UI looks and behaves, and why. Read it before changing the UI, and update it when a design decision changes |
+| `docs/ui-standards.md` | Where this app's UI differs from the shared rules (`scripts/devkit/docs/ui-standards.md`), its own windows and settings, and the decision log. Read both before changing the UI, and update them when a design decision changes |
 
 The QML never edits files itself: it asks `bin/startappimage` and reads its JSON (`list --json`, `info`, `config`, `locations`, `integration`, `check --json`).
 

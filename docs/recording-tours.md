@@ -1,14 +1,13 @@
 # Recording tours
 
-The tour at the top of the README (`screenshots/hero.avif`) is recorded with the shared devkit's recorder, in the nested test session. How the recorder works, every variable and helper of a tour file, human-like input, reading time and troubleshooting are in the devkit's guide: [scripts/devkit/docs/recording-tours.md](../scripts/devkit/docs/recording-tours.md). This page is what is StartAppImage's own.
+The tour at the top of the README (`screenshots/hero.avif`) is recorded with the shared devkit's recorder, in the nested test session. How to run it, how the recorder works, the tour-file variables and helpers, clips and crops, human-like input, reading time and troubleshooting are in the devkit's guide: [scripts/devkit/docs/recording-tours.md](../scripts/devkit/docs/recording-tours.md). This page is only what is StartAppImage's own.
 
 ```sh
 scripts/hero.sh              # records it, leaves the result in /tmp/hero.avif for a look
 scripts/hero.sh --install    # records it and copies it to screenshots/hero.avif
-scripts/sheet /tmp/hero.avif # a contact sheet of it, to check the whole recording at a glance
 ```
 
-`scripts/hero.sh` is a shortcut for `scripts/tour.sh scripts/tours/hero.sh`, and `scripts/tour.sh` is the devkit's `tour` run for this checkout. It takes a few minutes. **Your mouse and keyboard stay yours** and nothing of yours is changed: the tour runs in a sandbox, behind a guard, and the recorder proves it left your real files alone. Cancel any time (the red strip's button, or Ctrl+C).
+`scripts/hero.sh` is a shortcut for `scripts/tour.sh scripts/tours/hero.sh`, and `scripts/tour.sh` is the devkit's `tour` run for this checkout.
 
 ## What is StartAppImage's
 
@@ -16,6 +15,7 @@ scripts/sheet /tmp/hero.avif # a contact sheet of it, to check the whole recordi
 - **The sandbox protects your AppImages.** The copied manifests and launcher entries name AppImages by absolute path in your real home, so a change made in the session (a rename, hiding an app, an update) would be written to your real files. The `devkit_sandbox` hook in `devkit.conf` copies each AppImage a manifest names into the sandbox (a reflink where the filesystem has them) and points the `EXEC=`, `DESKTOP=` and `Exec=` paths at the copies, and the session refuses to start if one still names a real file.
 - **`scripts/tours/hero.sh`**: the story (double-click an AppImage and see what it is; the manager with an update waiting; one click to update; point an app at its GitHub releases; settings that apply at once; resize and move the window and find it where it was left). In the sandbox it changes the windows' saved size and place (reset to the defaults), ArtCraft Launcher looking one version behind (the update then downloads the real release, 12 MB, into the sandbox), the update check interval and the bar icon.
 - **It needs** ArtCraft Launcher (with a GitHub source) and PdfCraft installed in StartAppImage; `tour_requires` says what is missing.
+- **Crops and clips.** None: the tour is one full-screen recording, `screenshots/hero.avif`, and it is the only clip this repo keeps.
 - **Coordinates** are the session's 1280×800 screen. The windows open at their default size and place, because `tour_prepare` resets what was remembered; take a `scripts/dev shot` to read a pixel.
 
 ## Decision log

@@ -1,77 +1,33 @@
 # UI standards
 
-How StartAppImage looks and behaves, and why. The goal is that it feels like the rest of the Start family (StartBar, StartDrive) and like Omarchy itself, so a person who knows one knows them all.
+How StartAppImage looks and behaves, and where it differs from the other Start apps. **The shared rules are in the devkit: [scripts/devkit/docs/ui-standards.md](../scripts/devkit/docs/ui-standards.md)** (principles, window and card rules, moving and resizing, remembered state, the settings window's layout, applying settings, controls, shared words, notifications). Read it first. This file holds only what is StartAppImage's own, and its decision log.
 
-**This file is the source of truth for the UI.** Read it before you change anything visible. If a change makes a design decision that is not covered here, or goes against something that is, update this file in the same change and add a line to the [decision log](#decision-log). A UI change without a matching update here is not finished.
+**Both files are the source of truth for the UI.** Read them before you change anything visible. If a change makes a design decision that is not covered, or goes against something that is, update the right file in the same change (this one for this app, the kit's for something shared) and add a line to the [decision log](#decision-log) here. A UI change without a matching update is not finished.
 
-Sizes are written the way the code writes them: `space(n)` is `Style.space(n)`, which follows the user's font and spacing scale. Never hard-code pixels, colours or fonts.
+Sizes are written the way the code writes them: `space(n)` is `Style.space(n)`. Never hard-code pixels, colours or fonts.
 
-## Principles
+## Where StartAppImage differs from the shared rules
 
-1. **Follow the theme, always.** Colours, fonts, corner radius and spacing come from the shell (`Color`, `Style`, `Util.alpha`). Nothing is hard-coded, so the UI follows the Omarchy theme live. Muted text is the foreground at about 55% opacity, hairlines about 14%.
-2. **Same as StartBar where they overlap.** The settings window copies StartBar's settings window. When StartBar and this file disagree, ask which is right and fix the other one.
-3. **Changes happen when you make them.** No Apply buttons for settings (see [Settings window](#settings-window)). A change that cannot be made says so and goes back.
-4. **The window you came from stays.** A window opened from another one floats over it; closing it brings the first back.
-5. **Everything in the UI has a command-line equivalent.** The QML never edits files; it asks `bin/startappimage`. A setting that exists in the window exists as a `setup` option.
-6. **Say what will happen.** Every setting has a one-line hint, written as what the setting does, in the present tense.
-7. **Quiet by default.** Destructive or rarely used actions are soft pills, not primary buttons. Colour (accent) is for the one thing to do and for the selected state.
+- **A failed setting is always a critical notification.** The kit says a failure is shown under the setting where the window can show it, otherwise as a critical notification. The main settings window sends the notification ("Setting was not applied" and the reason) for every failed setting and flips the control back on the read-back. An app's own settings show a red line under the setting the error is about instead (see [App settings](#app-settings)).
+- **Closing a settings window returns keyboard focus to the manager's search box**, not just to the manager.
+- **The install card replaces the manager** rather than floating over it (see below).
 
 ## Windows
 
-Every window is a card on a full-screen layer-shell overlay with a dimmed scrim. The card has the menu background, a hairline border at 14% foreground, the theme radius and a soft shadow.
+The manager and the settings window follow the kit's sizes and rules. Remembered size and position are `WIN_*` (manager) and `SETUP_*` (settings window) in `~/.config/startappimage/config`, read with `startappimage window`. This app adds:
 
 | Card | Width | Height | Moves | Resizes | Closes with |
 |---|---|---|---|---|---|
-| Manager | 640 (or the user's) | content, up to 580 and the screen minus 80 | yes | yes | Esc, ✕, click outside |
-| Settings window | 760 (or the user's) | 520 (or the user's), at most the screen minus 80 | yes | yes | Esc, ✕, click outside or on the dimmed manager |
 | App settings window | the settings window's | the settings window's | yes (same place as the settings window) | yes (same size) | Esc, ✕, click outside or on the dimmed manager |
 | Install card | 520 | its content | no | no | Esc, ✕, Cancel |
 
-- **Dismissing.** Esc closes only the topmost window. In a search box, Esc clears the text first. A click on the scrim closes the topmost window.
-- **Stacking.** The settings window and an app's settings window float over the manager, which stays visible behind them under a 35% dark veil. Only one of them is open at a time. Closing one returns focus to the manager's search box. The install card still replaces the manager.
-- **Opening.** The manager opens where the user last left it (see [Remembered state](#remembered-state)).
-- **Close button.** A ✕ in the top-right corner of every card, 8 from the edges.
+- **Settings windows.** The main settings window and an app's settings window share one size and position, so opening either puts the window in the same place. Only one is open at a time.
+- **Install card.** It replaces the manager instead of floating over it.
 - **Drop target.** An `.AppImage` dropped on any card opens the install card.
-
-### Moving and resizing (manager and settings window)
-
-- **Move** by dragging the top strip of the card, 60 high, whatever is not a control. The pointer is an open hand over it and a closed hand while dragging. Controls in the strip (search box, buttons) keep their own behaviour.
-- **Resize** from the bottom-right corner: a 22 square handle with a small two-line grip and the diagonal resize pointer. The top-left corner stays put. Double-click it to go back to the default size and centre.
-- **Limits.** The manager is at least 480 by 300, the settings window 560 by 360, both at most the screen minus 40. At least a 60 strip of the card always stays on screen.
-- **Maths.** A card is centred plus an offset, so a resize shifts the centre by half the change.
-
-### Remembered state
-
-Size and position of each window are saved in `~/.config/startappimage/config` (`WIN_*` for the manager, `SETUP_*` for the settings window) and restored on the next open, even after a shell restart. Two switches control it, under **Window**: *Remember size* and *Remember position*. Switching one off forgets the saved value and opens centred, at the default size. They are read with `startappimage window` and written when a drag or resize ends.
 
 ## Settings windows
 
-There are two, the main one and one per app, and they are the same component: `SettingsWindow.qml` draws the header, page list, rows and footer; `SetupView.qml` (the main settings) and `SettingsView.qml` (one app's) only say what the pages and settings are. A new settings window is a new thin file around `SettingsWindow`, never a new layout. They share one size and position, so opening either puts the window in the same place.
-
-Modelled on StartBar's settings window.
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                  ( 🔍 Find a setting )                  ✕ │  header, 60
-│ StartAppImage │ General                                   │
-│ SETTINGS      │                                           │
-│ ▌General      │ App launcher entry              [●━]      │
-│  Bar          │ hint…                                     │  rows
-│  Updates      │ ───────────────────────────────────────── │
-│  Window       │ Open .AppImage files with  [A][B]         │
-│               │ ─────────────────────────────────────────  │
-│ ───────────────────────────────────────────────────────── │
-│ Changes apply instantly · Esc to close   [Reset to defaults] ◢│  footer, 52
-└──────────────────────────────────────────────────────────┘
-```
-
-- **Header (60).** A centred search pill, "Find a setting", with the magnifier glyph. While there is text, the right side lists matching settings from every page under "Search results", each group headed by its page name. No match says "No setting matches “…”."
-- **Page list (190 wide, left).** The window name in bold with a small-caps line under it that says what the window is for: "SETTINGS" (and for an app, "SETTINGS · 0.8.0" with its version), the same title-over-small-caps pattern as the manager's "7 INSTALLED". Then one 38 high row per page. The title block and the page heading beside it are 48 high. The current page has a 22% accent fill and a 3 wide accent mark on the left, and bold text. Hover is the shell's hover fill. A click clears any search.
-- **Heading.** The page name, body size + 8, bold, on the row of the window name.
-- **Body.** Scrolls when the page is taller than the window, with the [scroll bar](#controls) in a gutter that is always reserved, so the width never changes.
-- **Setting row.** The label (body size) with its hint under it (caption size, 55% opacity), the control on the right, a hairline at 50% under each row. The row is as tall as its label plus hint, with 6 above and below.
-- **Disabled setting.** Dimmed to 40%, not clickable, and the hint says why (for example, the command-line link when another file is at that path).
-- **Footer (52).** A hairline above it. On the left one muted line: "Changes apply instantly · Esc to close". On the right one pill, 30 clear of the resize grip.
+`SetupView.qml` (the main settings) and `SettingsView.qml` (one app's) are the thin files around `SettingsWindow.qml`. The window name is "StartAppImage" with "SETTINGS" under it; for an app, its icon and name with "SETTINGS · 0.8.0" (its version).
 
 ### Pages and settings
 
@@ -108,39 +64,18 @@ The window title is the app's icon and name, with "SETTINGS · version" under it
 
 ### Applying settings
 
-- **Instantly.** Each click runs `startappimage setup` for that one setting. Clicks queue and run one at a time, in order.
-- **Read back.** When the queue is empty the window reads the real state back, so a switch always shows what the system has.
-- **Failure.** A change that fails is announced with a critical notification ("Setting was not applied" and the reason) and its control flips back on the read-back.
-- **Window stays open.** Applying never closes the window.
-- **Reset to defaults.** A soft pill. The first click turns it red and asks "Click again to reset everything" for 3 seconds; the second click applies the defaults: launcher, file handler and command line on, bar icon off, checks every 6 hours, size and position remembered. These values are the CLI's (`defaults` in `startappimage integration`), not written here or in the QML.
-- **First run.** The window opens once, a few seconds after the plugin first loads, showing what is on now (usually nothing). The footer has **Not now** and an accent-filled **Enable recommended**. After the first change or **Not now** it never opens by itself again.
+Queueing, read-back and the first run are the kit's. What is this app's:
 
-## Controls
-
-All are inline components or small files in this repo and use only theme tokens.
-
-| Control | Look | Used for |
-|---|---|---|
-| 2026-10-15 | UI changes are tested in a nested session (`scripts/dev`), not on the real desktop | Clicks and restarts on the real shell moved the maintainer's pointer and typed into their windows; see [testing.md](testing.md) |
-| **Switch** | 42 × 24 pill; accent when on, 25% foreground when off; round knob in the menu background, 3 inset; the knob slides 100 ms, but not while the page is first shown | on/off settings |
-| **Choice** | Row of segments 28 high, 2 apart; selected is accent-filled with menu-background text, others 8% foreground; caption size. With many or long options (`stacked`) the segments wrap across the full width under the label, 6 apart | one of a few or several options |
-| **Chip** | Bordered rounded box; selected has a 18% accent fill and an accent border | picking a folder, Shown/Hidden in the per-app card |
-| **Field** | Single-line text box, 34 high, 6% foreground fill, border brightens on focus. In a settings window it sits under its label at full width and commits on Enter or when it loses focus; Esc drops the edit | text input |
-| **Pill** | 32 high, 8% foreground fill, hover fill, caption size; `primary` is accent-filled and bold; `danger` is 50% red | footer actions |
-| **Button** | The shell's `Button`; bordered for secondary, selected for primary | dialogs and rows |
-| **Scroll bar** (`ScrollTrack`) | 6 wide, soft track at 8%, rounded thumb at 28% that brightens on hover and press; drag the thumb or click the track; shown only when the list overflows | long lists and pages |
-
-Rules of thumb: one accent-filled thing per screen; selected means accent; hover is the shell's hover fill; nothing animates longer than 160 ms.
+- **Reset to defaults** applies: launcher, file handler and command line on, bar icon off, checks every 6 hours, size and position remembered. These values are the CLI's (`defaults` in `startappimage integration`), not written here or in the QML.
+- **A failed change** is a critical notification; see [Where StartAppImage differs](#where-startappimage-differs-from-the-shared-rules).
 
 ## Words
 
-- **Case.** Sentence case for labels and hints. Page names are one word where possible.
+This app's vocabulary, on top of the kit's:
+
 - **Names.** *AppImage* is one word, capitalised that way. The window is the **manager**; the other window is the **settings window**. A single app's card is its **settings**.
-- **Verbs.** *Install AppImage…* (not Add), *Uninstall*, *Update*, *Open*, *Reset to defaults*. A trailing ellipsis only when the action asks for more input.
+- **Verbs.** *Install AppImage…* (not Add), *Uninstall*, *Update*, *Open*, *Reset to defaults*.
 - **Search boxes.** "Search installed AppImages" in the manager, "Find a setting" in the settings window.
-- **Hints.** One or two short sentences, saying what happens. No "please", no exclamation marks.
-- **Errors.** Say what happened and what to do. They appear next to what caused them (under the field), or as a notification when the window is gone.
-- **Footer hint.** "Esc to close" appears at the bottom of every card that closes with Esc.
 
 ## The manager
 
@@ -152,24 +87,22 @@ Rules of thumb: one accent-filled thing per screen; selected means accent; hover
 
 ## The bar icon
 
-Optional, off by default, switched in the settings window. It is the download-arrow glyph, placed at the end of the right section of the bar. Left click opens or closes the manager (the same command as the launcher entry); right click checks for updates. It turns accent-coloured while an update is waiting, read from `~/.cache/startappimage/updates`, which every update check writes.
+The glyph is the download-arrow, at the end of the right section of the bar. Right click checks for updates. It turns accent-coloured while an update is waiting, read from `~/.cache/startappimage/updates`, which every update check writes.
+
+**Off by default here.** Some people want a way in from the bar; most do not (see the decision log). StartDrive turns it on by default; that is StartDrive's own decision, recorded in its `ui-standards.md`.
 
 ## Notifications
 
 - **Update available.** A system notification with **Update** and **Open manager** actions, shown once per new version, and not while the manager is open.
-- **Setting failed.** A critical notification, because the settings window cannot show it in place.
+- **Setting failed.** A critical notification; see [Where StartAppImage differs](#where-startappimage-differs-from-the-shared-rules).
 
 ## Verifying a UI change
 
-A change is done once it has been seen working in the test session: see [testing.md](testing.md) (`scripts/dev`). Retake the README screenshots with `scripts/screenshots.sh` when the look changes, and the tour when a step of it changes ([recording-tours.md](recording-tours.md)).
-
-## The README tour
-
-`screenshots/hero.avif` is recorded by an app-agnostic recorder. Guide, tour-file rules and the recorder's decision log: [recording-tours.md](recording-tours.md).
+A change is done once it has been seen working in `scripts/dev` ([testing.md](testing.md)). Retake the README screenshots with `scripts/screenshots.sh` when the look changes, and the tour when a step of it changes ([recording-tours.md](recording-tours.md)).
 
 ## Shared UI code
 
-The controls above, `SettingsWindow`, the drag-and-resize behaviour and the tour recorder (now the shared devkit, `scripts/devkit`) are meant to be shared by every Start app, so each does not keep its own copy. That is not done yet; the proposal is a shared `StartUI` repository added to each app as a git submodule. Until it exists, this repo is the reference implementation and StartBar's settings window is the reference design.
+**StartAppImage is the reference implementation of the shared components** (the controls, `SettingsWindow`, the drag-and-resize behaviour): StartDrive's copies are kept identical to this app's. What is shared and what is not yet is in [scripts/devkit/docs/ui-standards.md](../scripts/devkit/docs/ui-standards.md#shared-ui-code). StartBar's settings window is the reference design.
 
 ## Decision log
 
@@ -177,6 +110,7 @@ Newest first. One line each: what was decided, and why.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-15 | UI changes are tested in a nested session (`scripts/dev`), not on the real desktop | Clicks and restarts on the real shell moved the maintainer's pointer and typed into their windows; see [testing.md](testing.md) |
 | 2026-10-15 | After an update succeeds the app is dropped from the "updates waiting" list at once | The row flashed "Update available" again for about a second until the next check finished, which looked like the click had not worked |
 | 2026-10-15 | Settings windows say "SETTINGS" in small caps under their title | Nothing in the window said what it was for; the title-over-small-caps pattern is the one the manager already uses |
 | 2026-10-15 | One app's settings use the same `SettingsWindow` as the main settings: pages on the left, applied instantly, floating over the manager, sharing its size and place | Two different looks for "settings" felt inconsistent; one component keeps them identical and is what will move into the shared UI module |

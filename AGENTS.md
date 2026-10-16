@@ -21,10 +21,10 @@ Single-context: one `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agen
 
 ## UI standards
 
-`docs/ui-standards.md` says how the UI looks and behaves and why. Follow it for any visible change. When a change makes a design decision, or goes against what it says, update that file in the same change and add a line to its decision log. UI work is done once seen working in `scripts/dev`.
+The shared UI rules (principles, windows, settings window, controls, words) are in `scripts/devkit/docs/ui-standards.md`; `docs/ui-standards.md` holds where StartAppImage differs, its own windows, settings and words, and the decision log. Follow both for any visible change. When a change makes a design decision, or goes against what they say, update the right file in the same change (this app's for this app, the devkit's for something shared, in that repository, since `scripts/devkit` is not edited here) and add a line to the decision log in `docs/ui-standards.md`. UI work is done once seen working in `scripts/dev`.
 
 Reference for the settings window: StartBar, `~/.config/omarchy/plugins/io.github.bmaltais.startbar` (`Service.qml`, `ScrollTrack.qml`, `scripts/smoke.sh`).
 
 ## Recorder
 
-`docs/recording-tours.md` before changing `scripts/tours/` or `devkit.conf`. The session and recorder themselves are the shared devkit's (`scripts/devkit`, a git submodule of `bmaltais/omarchy-plugin-devkit`, so it is not in what users install or what the marketplace reviews; clone with `--recurse-submodules`, or `git submodule update --init`): fix a bug there in that repository, release it, and move the pointer (`git -C scripts/devkit checkout vX.Y.Z`, then commit); do not edit the files here.
+`docs/recording-tours.md` (this app's tour; the rest is `scripts/devkit/docs/recording-tours.md`) before changing `scripts/tours/` or `devkit.conf`. The session and recorder themselves are the shared devkit's (`scripts/devkit`, a git submodule of `bmaltais/omarchy-plugin-devkit`, so it is not in what users install or what the marketplace reviews; clone with `--recurse-submodules`, or `git submodule update --init`): fix a bug there in that repository, release it, and move the pointer (`git -C scripts/devkit checkout vX.Y.Z`, then commit); do not edit the files here.
