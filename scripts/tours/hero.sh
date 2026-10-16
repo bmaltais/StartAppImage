@@ -11,14 +11,11 @@
 # update then downloads the real release, 12 MB, into the sandbox), the update check interval and the bar icon.
 # Needs the apps it uses installed in StartAppImage: ArtCraft Launcher (with a GitHub source) and PdfCraft.
 
-TOUR_TITLE=StartAppImage
+# The plugin, its sandbox and what a recording must not touch are in devkit.conf.
 TOUR_OUT=screenshots/hero.avif
-TOUR_LAYER=omarchy-startappimage
 TOUR_STEPS=6
 
-# This plugin runs in the sandbox, with copies of the app's data (and of ArtCraft's AppImage, so the
-# update the tour performs cannot touch your real one). Your real settings and files are never changed.
-TOUR_PLUGIN_ID=io.github.bmaltais.startappimage
+ID=io.github.bmaltais.startappimage
 TOUR_SANDBOX_COPY=(.local/share/startappimage .local/share/applications)
 TOUR_SANDBOX_LINK=(.local/share/icons)
 # The recorder proves the tour touched none of these (it fails the run if one changed).

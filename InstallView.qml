@@ -14,10 +14,10 @@ Item {
   property bool custom: false
 
   readonly property var meta: view.svc.meta
-  readonly property string state: view.svc.installState
+  readonly property string stage: view.svc.installState
   readonly property bool installed: view.meta.installed === true
   readonly property bool sameVersion: view.installed && !!view.meta.version && view.meta.version === view.meta.installedVersion
-  readonly property bool failed: view.state === "failed"
+  readonly property bool failed: view.stage === "failed"
   readonly property string lastLine: {
     var lines = view.svc.installLog.trim().split("\n")
     return lines.length ? lines[lines.length - 1] : ""
@@ -27,11 +27,11 @@ Item {
 
   function primary() {
     if (view.confirmRemove) return
-    if (view.state === "removed") view.svc.close()
-    else if (view.state === "ready") {
+    if (view.stage === "removed") view.svc.close()
+    else if (view.stage === "ready") {
       if (view.installed) view.svc.openInstalled()
       else view.svc.startInstall()
-    } else if (view.state === "done") view.svc.openInstalled()
+    } else if (view.stage === "done") view.svc.openInstalled()
     else if (view.failed) { if (view.svc.meta.name) view.svc.startInstall(); else view.svc.close() }
   }
 
@@ -70,7 +70,7 @@ Item {
           color: Util.alpha(Color.foreground, 0.10)
           Text {
             anchors.centerIn: parent
-            text: view.state === "loading" ? "" : (view.meta.name || "?").charAt(0).toUpperCase()
+            text: view.stage === "loading" ? "" : (view.meta.name || "?").charAt(0).toUpperCase()
             color: Color.foreground
             font.family: Style.font.family
             font.pixelSize: Style.font.display
@@ -84,7 +84,7 @@ Item {
         spacing: Style.spacing.xs
         Text {
           Layout.fillWidth: true
-          text: view.state === "loading" ? "Reading AppImage..." : (view.meta.name || "Unknown app")
+          text: view.stage === "loading" ? "Reading AppImage..." : (view.meta.name || "Unknown app")
           color: Color.foreground
           font.family: Style.font.family
           font.pixelSize: Style.font.heading
@@ -123,7 +123,7 @@ Item {
     // Where it comes from and where it goes
     Rectangle {
       Layout.fillWidth: true
-      visible: view.state !== "loading"
+      visible: view.stage !== "loading"
       implicitHeight: details.implicitHeight + Style.spacing.xxl * 2
       radius: Math.max(Style.cornerRadius, Style.space(6))
       color: Util.alpha(Color.foreground, 0.05)
@@ -151,7 +151,7 @@ Item {
         }
         Text {
           Layout.topMargin: Style.spacing.md
-          text: view.state === "ready" ? "INSTALL TO" : "INSTALLS TO"
+          text: view.stage === "ready" ? "INSTALL TO" : "INSTALLS TO"
           color: Color.muted
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
@@ -162,7 +162,7 @@ Item {
         Flow {
           Layout.fillWidth: true
           spacing: Style.spacing.md
-          visible: view.state === "ready"
+          visible: view.stage === "ready"
           Repeater {
             model: view.svc.locationOptions
             delegate: Chip {
@@ -180,7 +180,7 @@ Item {
         Rectangle {
           Layout.fillWidth: true
           Layout.preferredHeight: Style.space(32)
-          visible: view.state === "ready" && view.custom
+          visible: view.stage === "ready" && view.custom
           radius: Math.max(Style.cornerRadius, Style.space(5))
           color: Util.alpha(Color.foreground, 0.06)
           border.width: Style.normalBorderWidth
@@ -208,7 +208,7 @@ Item {
         }
         Text {
           Layout.fillWidth: true
-          visible: view.state !== "ready"
+          visible: view.stage !== "ready"
           text: view.svc.short(view.svc.installDir || "") + "  +  an entry in the app launcher"
           color: Color.foreground
           font.family: Style.font.family
@@ -221,7 +221,7 @@ Item {
     // Already installed
     RowLayout {
       Layout.fillWidth: true
-      visible: view.installed && view.state === "ready"
+      visible: view.installed && view.stage === "ready"
       spacing: Style.spacing.md
       Rectangle {
         Layout.preferredWidth: Style.space(7)
@@ -246,14 +246,14 @@ Item {
     ColumnLayout {
       Layout.fillWidth: true
       spacing: Style.spacing.lg
-      visible: view.state === "installing" || view.state === "removing" || view.state === "done" || view.state === "removed" || view.failed
+      visible: view.stage === "installing" || view.stage === "removing" || view.stage === "done" || view.stage === "removed" || view.failed
 
       Rectangle {
         Layout.fillWidth: true
         Layout.preferredHeight: Style.space(4)
         radius: height / 2
         color: Util.alpha(Color.foreground, 0.10)
-        visible: view.state === "installing" || view.state === "removing"
+        visible: view.stage === "installing" || view.stage === "removing"
         clip: true
         Rectangle {
           id: slider
@@ -262,7 +262,7 @@ Item {
           radius: height / 2
           color: Color.accent
           SequentialAnimation on x {
-            running: view.state === "installing" || view.state === "removing"
+            running: view.stage === "installing" || view.stage === "removing"
             loops: Animation.Infinite
             NumberAnimation { from: -slider.width; to: slider.parent.width; duration: 1100; easing.type: Easing.InOutQuad }
           }
@@ -274,16 +274,16 @@ Item {
         wrapMode: Text.Wrap
         font.family: Style.font.family
         font.pixelSize: Style.font.body
-        color: view.failed ? Color.urgent : ((view.state === "done" || view.state === "removed") ? Color.accent : Color.foreground)
+        color: view.failed ? Color.urgent : ((view.stage === "done" || view.stage === "removed") ? Color.accent : Color.foreground)
         text: view.failed ? "That did not work."
-          : view.state === "done" ? "Installed. It is in your app launcher now."
-          : view.state === "removed" ? "Uninstalled. The app and its launcher entry are gone."
-          : view.state === "removing" ? "Uninstalling..."
+          : view.stage === "done" ? "Installed. It is in your app launcher now."
+          : view.stage === "removed" ? "Uninstalled. The app and its launcher entry are gone."
+          : view.stage === "removing" ? "Uninstalling..."
           : view.lastLine
       }
 
       Text {
-        visible: view.state !== "done" && view.state !== "removed" && view.svc.installLog !== ""
+        visible: view.stage !== "done" && view.stage !== "removed" && view.svc.installLog !== ""
         text: view.showDetails ? "Hide details" : "Show details"
         color: Color.muted
         font.family: Style.font.family
@@ -318,7 +318,7 @@ Item {
       visible: !view.confirmRemove
 
       Button {
-        visible: view.state === "ready" && view.installed
+        visible: view.stage === "ready" && view.installed
         text: "Uninstall"
         bordered: true
         foreground: Color.urgent
@@ -328,36 +328,36 @@ Item {
       Item { Layout.fillWidth: true }
 
       Button {
-        visible: (view.state === "ready" && !view.installed) || view.failed
+        visible: (view.stage === "ready" && !view.installed) || view.failed
         text: "Cancel"
         bordered: true
         onClicked: view.svc.close()
       }
       Button {
-        visible: view.state === "ready"
+        visible: view.stage === "ready"
         text: "Run once"
         bordered: true
         onClicked: view.svc.runOnce()
       }
       Button {
-        visible: view.state === "ready" && view.installed
+        visible: view.stage === "ready" && view.installed
         text: view.sameVersion ? "Reinstall" : "Replace"
         bordered: true
         onClicked: view.svc.startInstall()
       }
       Button {
-        visible: view.state === "ready" || view.state === "done" || (view.failed && !!view.meta.name)
+        visible: view.stage === "ready" || view.stage === "done" || (view.failed && !!view.meta.name)
         selected: true
-        text: view.state === "done" ? "Open"
+        text: view.stage === "done" ? "Open"
           : view.failed ? "Retry"
           : view.installed ? "Open installed" : "Install"
         onClicked: view.primary()
       }
       Button {
-        visible: view.state === "done" || view.state === "removed"
+        visible: view.stage === "done" || view.stage === "removed"
         text: "Done"
         bordered: true
-        selected: view.state === "removed"
+        selected: view.stage === "removed"
         onClicked: view.svc.close()
       }
     }

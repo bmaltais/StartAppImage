@@ -31,7 +31,6 @@ InstallView.qml	missing-property	Member "accent" not found on type "QQuickColor"
 InstallView.qml	missing-property	Member "foreground" not found on type "QQuickColor"
 InstallView.qml	missing-property	Member "muted" not found on type "QQuickColor"
 InstallView.qml	missing-property	Member "urgent" not found on type "QQuickColor"
-InstallView.qml	property-override	Property "state" already exists in base type "QQuickItem", use a different name.
 InstallView.qml	unqualified	Style
 InstallView.qml	unqualified	Util
 InstallView.qml	unqualified	modelData
