@@ -31,6 +31,9 @@ Rectangle {
     font.family: Style.font.family
     font.pixelSize: Style.font.bodySmall
     clip: true
+    // Read-only until focused: an editable TextInput reads the clipboard on every
+    // change (to know if it can paste), so an idle one would fetch foreign text.
+    readOnly: !activeFocus
     onAccepted: field.accepted()
     Keys.onEscapePressed: function (event) { field.escaped(); event.accepted = false }
 

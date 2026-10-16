@@ -105,6 +105,9 @@ Item {
         font.family: Style.font.family
         font.pixelSize: Style.font.body
         maximumLength: 64
+        // Read-only until focused: an editable TextInput reads the clipboard on every
+        // change (to know if it can paste), so an idle one would fetch foreign text.
+        readOnly: !activeFocus
         clip: true
         onTextChanged: if (win.query !== search.text) win.query = search.text
         // Escape clears a search first, then closes the window.
