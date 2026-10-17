@@ -286,7 +286,7 @@ Item {
         font.family: Style.font.family
         font.pixelSize: Style.font.body
         color: view.failed ? Color.urgent : ((view.stage === "done" || view.stage === "removed") ? Color.accent : Color.foreground)
-        text: view.failed ? "That did not work."
+        text: view.failed ? "That did not work." + (view.lastLine !== "" ? "\n" + view.lastLine.replace(/^startappimage: /, "") : "")
           : view.stage === "done" ? "Installed. It is in your app launcher now."
           : view.stage === "removed" ? "Uninstalled. The app and its launcher entry are gone."
           : view.stage === "removing" ? "Uninstalling..."

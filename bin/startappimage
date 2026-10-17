@@ -40,7 +40,13 @@ expand_dir() { local p=${1/#\~/$HOME}; printf '%s' "${p%/}"; }
 inside_home() { [[ $1 == "$HOME"/* ]]; }
 # Progress for a person: stdout, or stderr when stdout is reserved for the JSON result.
 say() { if [[ $JSON_RESULT == 1 ]]; then echo "$*" >&2; else echo "$*"; fi; }
-need() { command -v "$1" >/dev/null || die "missing dependency: $1"; }
+need() {
+  command -v "$1" >/dev/null && return
+  case $1 in
+    unsquashfs) die "missing dependency: unsquashfs. Install it with: sudo pacman -S squashfs-tools" ;;
+    *) die "missing dependency: $1" ;;
+  esac
+}
 
 usage() {
   cat <<EOF
