@@ -38,6 +38,7 @@ Rectangle {
     Keys.onEscapePressed: function (event) { field.escaped(); event.accepted = false }
 
     Text {
+      textFormat: Text.PlainText
       visible: input.text === ""
       anchors.verticalCenter: parent.verticalCenter
       text: field.placeholder

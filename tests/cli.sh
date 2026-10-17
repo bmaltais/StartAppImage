@@ -466,6 +466,16 @@ t_info_ignores_an_icon_symlink_that_leaves_the_image() {
   ! grep -rqs secret "$HOME/.cache" || fail "the symlink target was copied into the cache"
 }
 
+# Untrusted names and comments reach the QML Text items; with the default AutoText an embedded
+# <img src="http://..."> would fetch from the network when the preview opens.
+t_every_qml_text_item_is_plain_text() {
+  local f bad
+  for f in "$ROOT"/*.qml; do
+    bad=$(grep -n -A1 -E '^\s*Text \{$' "$f" | grep -E '^[0-9]+-' | grep -v 'textFormat: Text.PlainText' || true)
+    [[ -z $bad ]] || fail "$(basename "$f"): a Text without textFormat: Text.PlainText right after it"
+  done
+}
+
 t_info_never_runs_the_file() {
   local f="$HOME/Downloads/Demo.AppImage"
   fake_appimage "$f" "Demo App" 1.2

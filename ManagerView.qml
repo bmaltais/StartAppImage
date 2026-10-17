@@ -69,6 +69,7 @@ Item {
         Layout.fillWidth: true
         spacing: 0
         Text {
+          textFormat: Text.PlainText
           text: "StartAppImage"
           color: Color.foreground
           font.family: Style.font.family
@@ -76,6 +77,7 @@ Item {
           font.bold: true
         }
         Text {
+          textFormat: Text.PlainText
           text: view.subtitle
           color: Color.muted
           font.family: Style.font.family
@@ -114,6 +116,7 @@ Item {
       border.color: Util.alpha(Color.foreground, search.activeFocus ? 0.30 : 0.12)
 
       Text {
+        textFormat: Text.PlainText
         id: glass
         anchors.left: parent.left
         anchors.leftMargin: Style.spacing.xxxl
@@ -151,6 +154,7 @@ Item {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: search.text === ""
           anchors.verticalCenter: parent.verticalCenter
           text: "Search installed AppImages"
@@ -162,6 +166,7 @@ Item {
 
     // Section label
     Text {
+      textFormat: Text.PlainText
       text: "APPS"
       color: Color.muted
       font.family: Style.font.family
@@ -219,6 +224,7 @@ Item {
       spacing: Style.spacing.lg
       Item { Layout.fillHeight: true }
       Text {
+        textFormat: Text.PlainText
         Layout.alignment: Qt.AlignHCenter
         text: view.svc.apps.length === 0 ? "No AppImages installed yet" : "No match for \"" + view.query + "\""
         color: Color.foreground
@@ -227,6 +233,7 @@ Item {
         font.bold: true
       }
       Text {
+        textFormat: Text.PlainText
         Layout.alignment: Qt.AlignHCenter
         Layout.maximumWidth: parent.width - Style.space(40)
         visible: view.svc.apps.length === 0
@@ -266,6 +273,7 @@ Item {
           onAccepted: addButton.clicked()
           Keys.onEscapePressed: { view.adding = false; search.forceActiveFocus() }
           Text {
+            textFormat: Text.PlainText
             visible: source.text === ""
             anchors.verticalCenter: parent.verticalCenter
             text: "GitHub link, owner/repo, download URL or /path/App.AppImage"
@@ -300,6 +308,7 @@ Item {
         onClicked: { view.adding = !view.adding; if (view.adding) source.forceActiveFocus(); else search.forceActiveFocus() }
       }
       Text {
+        textFormat: Text.PlainText
         Layout.fillWidth: true
         horizontalAlignment: Text.AlignRight
         elide: Text.ElideRight

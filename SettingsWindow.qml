@@ -85,6 +85,7 @@ Item {
       border.color: Util.alpha(Color.foreground, search.activeFocus ? 0.30 : 0.12)
 
       Text {
+        textFormat: Text.PlainText
         id: glass
         anchors.left: parent.left
         anchors.leftMargin: Style.spacing.xxxl
@@ -115,6 +116,7 @@ Item {
           if (search.text !== "") { search.text = ""; event.accepted = true } else event.accepted = false
         }
         Text {
+          textFormat: Text.PlainText
           visible: search.text === ""
           anchors.verticalCenter: parent.verticalCenter
           text: win.searchPlaceholder
@@ -160,6 +162,7 @@ Item {
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           elide: Text.ElideRight
           text: win.title
@@ -169,6 +172,7 @@ Item {
           font.bold: true
         }
         Text {
+          textFormat: Text.PlainText
           visible: win.subtitle !== ""
           width: parent.width
           elide: Text.ElideRight
@@ -216,6 +220,7 @@ Item {
             color: Color.accent
           }
           Text {
+            textFormat: Text.PlainText
             anchors.left: parent.left
             anchors.leftMargin: Style.space(16)
             anchors.verticalCenter: parent.verticalCenter
@@ -238,6 +243,7 @@ Item {
 
   // ---- right: the page heading and its settings --------------------------------------
   Text {
+    textFormat: Text.PlainText
     id: heading
     anchors.top: header.bottom
     anchors.left: side.right
@@ -273,6 +279,7 @@ Item {
       width: body.width
 
       Text {
+        textFormat: Text.PlainText
         visible: win.searching && win.shownGroups.length === 0
         width: rows.width
         wrapMode: Text.WordWrap
@@ -294,6 +301,7 @@ Item {
 
           // Search results come from several pages: say which.
           Text {
+            textFormat: Text.PlainText
             visible: win.searching
             topPadding: Style.spacing.md
             bottomPadding: Style.spacing.xs
@@ -337,6 +345,7 @@ Item {
                 anchors.left: parent.left
                 width: row.stacked ? parent.width : parent.width - editor.width - Style.spacing.xxl
                 Text {
+                  textFormat: Text.PlainText
                   width: parent.width
                   elide: Text.ElideRight
                   text: row.field.label
@@ -345,6 +354,7 @@ Item {
                   font.pixelSize: Style.font.body
                 }
                 Text {
+                  textFormat: Text.PlainText
                   visible: !!row.field.hint
                   width: parent.width
                   wrapMode: Text.WordWrap
@@ -381,6 +391,7 @@ Item {
               }
 
               Text {
+                textFormat: Text.PlainText
                 id: note
                 visible: !!(row.field.note && row.field.note.text)
                 anchors.top: row.stacked ? editor.bottom : labels.bottom
@@ -433,6 +444,7 @@ Item {
     }
 
     Text {
+      textFormat: Text.PlainText
       anchors.left: parent.left
       anchors.leftMargin: Style.spacing.lg
       anchors.right: footerRow.left
@@ -569,6 +581,7 @@ Item {
     color: seg.selected ? Color.accent
       : (segHover.hovered ? Style.hoverFillFor(Color.foreground, Color.accent) : Util.alpha(Color.foreground, 0.08))
     Text {
+      textFormat: Text.PlainText
       id: segLabel
       anchors.centerIn: parent
       text: seg.text
