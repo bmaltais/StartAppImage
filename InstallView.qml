@@ -284,12 +284,16 @@ Item {
         }
       }
 
-      Text {
-        textFormat: Text.PlainText
+      // A TextEdit, not a Text, so the result (an error to look up or a command to run) can be selected and copied.
+      TextEdit {
+        textFormat: TextEdit.PlainText
+        readOnly: true
+        selectByMouse: true
         Layout.fillWidth: true
-        wrapMode: Text.Wrap
+        wrapMode: TextEdit.Wrap
         font.family: Style.font.family
         font.pixelSize: Style.font.body
+        selectionColor: Color.accent
         color: view.failed ? Color.urgent : ((view.stage === "done" || view.stage === "removed") ? Color.accent : Color.foreground)
         text: view.failed ? "That did not work." + (view.lastLine !== "" ? "\n" + view.lastLine.replace(/^startappimage: /, "") : "")
           : view.stage === "done" ? "Installed. It is in your app launcher now."
@@ -315,14 +319,17 @@ Item {
         radius: Math.max(Style.cornerRadius, Style.space(6))
         color: Util.alpha(Color.foreground, 0.05)
         clip: true
-        Text {
-          textFormat: Text.PlainText
+        TextEdit {
+          textFormat: TextEdit.PlainText
+          readOnly: true
+          selectByMouse: true
+          selectionColor: Color.accent
           id: logText
           anchors.fill: parent
           anchors.margins: Style.spacing.xxl
           text: view.svc.installLog.trim()
           color: Color.muted
-          wrapMode: Text.Wrap
+          wrapMode: TextEdit.Wrap
           font.family: Style.font.family
           font.pixelSize: Style.font.bodySmall
         }
