@@ -71,6 +71,7 @@ Rectangle {
         radius: Style.space(8)
         color: Util.alpha(Color.foreground, 0.10)
         Text {
+          textFormat: Text.PlainText
           anchors.centerIn: parent
           text: (row.app.name || "?").charAt(0).toUpperCase()
           color: Color.foreground
@@ -89,6 +90,7 @@ Rectangle {
         Layout.fillWidth: true
         spacing: Style.spacing.lg
         Text {
+          textFormat: Text.PlainText
           Layout.maximumWidth: nameRow.width - (tag.visible ? tag.width + nameRow.spacing : 0)
           text: row.app.name || row.app.id
           color: Color.foreground
@@ -108,6 +110,7 @@ Rectangle {
           border.width: Style.normalBorderWidth
           border.color: Util.alpha(Color.foreground, 0.30)
           Text {
+            textFormat: Text.PlainText
             id: tagText
             anchors.centerIn: parent
             text: "EXTERNAL"
@@ -128,6 +131,7 @@ Rectangle {
           color: row.hasUpdate ? Color.accent : Util.alpha(Color.foreground, 0.35)
         }
         Text {
+          textFormat: Text.PlainText
           Layout.fillWidth: true
           color: row.hasUpdate ? Color.accent : Color.muted
           font.family: Style.font.family
@@ -172,6 +176,7 @@ Rectangle {
       spacing: Style.spacing.md
       visible: row.confirming && !row.busy
       Text {
+        textFormat: Text.PlainText
         text: row.app.external === true ? "Delete the app?" : "Uninstall?"
         color: Color.foreground
         font.family: Style.font.family

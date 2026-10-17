@@ -69,6 +69,7 @@ Item {
           radius: Style.space(12)
           color: Util.alpha(Color.foreground, 0.10)
           Text {
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             text: view.stage === "loading" ? "" : (view.meta.name || "?").charAt(0).toUpperCase()
             color: Color.foreground
@@ -83,6 +84,7 @@ Item {
         Layout.fillWidth: true
         spacing: Style.spacing.xs
         Text {
+          textFormat: Text.PlainText
           Layout.fillWidth: true
           text: view.stage === "loading" ? "Reading AppImage..." : (view.meta.name || "Unknown app")
           color: Color.foreground
@@ -92,6 +94,7 @@ Item {
           elide: Text.ElideRight
         }
         Text {
+          textFormat: Text.PlainText
           Layout.fillWidth: true
           visible: !!view.meta.comment
           text: view.meta.comment || ""
@@ -103,6 +106,7 @@ Item {
           elide: Text.ElideRight
         }
         Text {
+          textFormat: Text.PlainText
           Layout.fillWidth: true
           visible: !!view.meta.size
           color: Color.muted
@@ -135,6 +139,7 @@ Item {
         spacing: Style.spacing.sm
 
         Text {
+          textFormat: Text.PlainText
           text: "FROM"
           color: Color.muted
           font.family: Style.font.family
@@ -142,6 +147,7 @@ Item {
           font.letterSpacing: 1
         }
         Text {
+          textFormat: Text.PlainText
           Layout.fillWidth: true
           text: view.svc.short(view.meta.path || view.svc.installFile)
           color: Color.foreground
@@ -150,6 +156,7 @@ Item {
           elide: Text.ElideMiddle
         }
         Text {
+          textFormat: Text.PlainText
           Layout.topMargin: Style.spacing.md
           text: view.stage === "ready" ? "INSTALL TO" : "INSTALLS TO"
           color: Color.muted
@@ -198,6 +205,7 @@ Item {
             onTextChanged: if (view.custom) view.svc.installDir = text.trim()
             Keys.onReturnPressed: view.primary()
             Text {
+              textFormat: Text.PlainText
               visible: folder.text === ""
               anchors.verticalCenter: parent.verticalCenter
               text: "~/Tools/AppImages  (inside your home folder)"
@@ -207,6 +215,7 @@ Item {
           }
         }
         Text {
+          textFormat: Text.PlainText
           Layout.fillWidth: true
           visible: view.stage !== "ready"
           text: view.svc.short(view.svc.installDir || "") + "  +  an entry in the app launcher"
@@ -230,6 +239,7 @@ Item {
         color: Color.accent
       }
       Text {
+        textFormat: Text.PlainText
         Layout.fillWidth: true
         wrapMode: Text.Wrap
         color: Color.accent
@@ -270,6 +280,7 @@ Item {
       }
 
       Text {
+        textFormat: Text.PlainText
         Layout.fillWidth: true
         wrapMode: Text.Wrap
         font.family: Style.font.family
@@ -283,6 +294,7 @@ Item {
       }
 
       Text {
+        textFormat: Text.PlainText
         visible: view.stage !== "done" && view.stage !== "removed" && view.svc.installLog !== ""
         text: view.showDetails ? "Hide details" : "Show details"
         color: Color.muted
@@ -299,6 +311,7 @@ Item {
         color: Util.alpha(Color.foreground, 0.05)
         clip: true
         Text {
+          textFormat: Text.PlainText
           id: logText
           anchors.fill: parent
           anchors.margins: Style.spacing.xxl
@@ -369,6 +382,7 @@ Item {
       visible: view.confirmRemove
 
       Text {
+        textFormat: Text.PlainText
         Layout.fillWidth: true
         text: "Uninstall " + (view.meta.name || "this app") + "?"
         color: Color.foreground

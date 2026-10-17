@@ -19,6 +19,7 @@ Rectangle {
 
   HoverHandler { id: chipHover }
   Text {
+    textFormat: Text.PlainText
     id: chipLabel
     anchors.centerIn: parent
     text: chip.label

@@ -20,6 +20,7 @@ Rectangle {
     : (hover.hovered ? Style.hoverFillFor(Color.foreground, Color.accent) : Util.alpha(Color.foreground, 0.08))
 
   Text {
+    textFormat: Text.PlainText
     id: label
     anchors.centerIn: parent
     text: pill.text
