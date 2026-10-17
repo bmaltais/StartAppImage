@@ -45,7 +45,7 @@ Every change in the settings window **applies the moment you make it**, as in St
 
 <img src="screenshots/settings-window.png" alt="The settings window floating over the manager: pages on the left (General, Bar, Updates, Window), the settings of the chosen page on the right, and a footer with Reset to defaults" width="620">
 
-Only your home folder is touched. Everything the plugin needs (`bash`, `curl`, `jq`, `notify-send`) comes with Omarchy.
+Only your home folder is touched. Everything the plugin needs (`bash`, `curl`, `jq`, `notify-send`) comes with Omarchy, except `unsquashfs` (package `squashfs-tools`), which reads an AppImage's name and icon without running it.
 
 Prefer the terminal? `startappimage setup --launcher true --handler true --cli true` does the same for those three, and `startappimage integration` prints the current state as JSON. `register` and `unregister` still work.
 
@@ -134,7 +134,7 @@ Without the plugin loaded, opening an `.AppImage` falls back to a simple picker.
 
 Plugins run unsandboxed, so here is what this one does.
 
-- **Reading an AppImage runs it.** To show the name and icon, the file is run once with `--appimage-extract`, which unpacks a few files. Only open AppImages you trust, as you would before running them.
+- **Reading an AppImage does not run it.** The name and icon are read straight from the file's squashfs with `unsquashfs`, so previewing or cancelling never executes it. Install, Run once and update checks are different: those run the app, so only install AppImages you trust.
 - **Downloads** use `curl` over the address you give. Updates from GitHub are not checked against a published digest, so only add update sources you trust.
 - **Files** are only created, moved or deleted inside your home folder. Install and move folders outside it are refused, and so is deleting anything that is not an `.AppImage`.
 - **Nothing is installed system-wide.** It needs no administrator rights and runs no background service of its own: updates are checked by a timer inside the shell.

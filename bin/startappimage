@@ -235,21 +235,32 @@ cmd_resolve() {
 }
 
 # --- metadata ------------------------------------------------------------------
+# squash_offset <appimage>: byte offset of the squashfs payload, read from the ELF header
+# (end of the section header table, where the type 2 runtime ends). Never runs the file.
+squash_offset() {
+  local f=$1 shoff shentsize shnum off
+  [[ $(head -c4 "$f" | od -An -c | tr -d ' ') == '177ELF' ]] || return 1
+  shoff=$(od -An -tu8 -j40 -N8 "$f" | tr -d ' ')
+  shentsize=$(od -An -tu2 -j58 -N2 "$f" | tr -d ' ')
+  shnum=$(od -An -tu2 -j60 -N2 "$f" | tr -d ' ')
+  off=$((shoff + shentsize * shnum))
+  [[ $(tail -c +$((off + 1)) "$f" | head -c4) == hsqs ]] || return 1
+  echo "$off"
+}
+
 # extract_meta <appimage> <tmpdir> [fallback-name]
-# Sets M_NAME M_COMMENT M_CATS M_ICON (path or empty). Runs the AppImage only with --appimage-extract.
+# Sets M_NAME M_COMMENT M_CATS M_ICON (path or empty). Never runs the AppImage: it reads the
+# squashfs with unsquashfs, because a hostile file can ship a runtime that ignores --appimage-extract.
 extract_meta() {
-  local file=$1 tmp=$2 fallback=${3:-} root desktop icon_name run=$1
+  local file=$1 tmp=$2 fallback=${3:-} root desktop icon_name off
   root="$tmp/squashfs-root"
-  if [[ ! -x "$file" ]]; then # never chmod the user's own file; work on a copy
-    run="$tmp/app.AppImage"; cp --reflink=auto "$file" "$run"; chmod +x "$run"
-  fi
+  need unsquashfs
+  off=$(squash_offset "$file") || die "not a valid AppImage (no squashfs payload)"
   # Pull out only the metadata: a full extraction of a 300 MB app is slow.
-  ( cd "$tmp" && "$run" --appimage-extract '*.desktop' >/dev/null 2>&1 && "$run" --appimage-extract '.DirIcon' >/dev/null 2>&1 ) || true
+  unsq() { unsquashfs -o "$off" -n -f -d "$root" "$file" "$@" >/dev/null 2>&1 || true; }
+  unsq '*.desktop' '.DirIcon'
   desktop=$(find "$root" -maxdepth 1 -name '*.desktop' 2>/dev/null | head -n1 || true)
-  if [[ -z "$desktop" ]]; then
-    ( cd "$tmp" && "$run" --appimage-extract >/dev/null 2>&1 ) || die "not a valid AppImage (extraction failed)"
-    desktop=$(find "$root" -maxdepth 1 -name '*.desktop' 2>/dev/null | head -n1 || true)
-  fi
+  [[ -n "$desktop" ]] || die "not a valid AppImage (no .desktop file)"
   M_NAME=$fallback M_COMMENT="" M_CATS="Utility;" M_ICON="" M_VERSION=""
   if [[ -n "$desktop" ]]; then
     M_NAME=$(sed -n 's/^Name=//p' "$desktop" | head -n1); M_NAME=${M_NAME:-$fallback}
@@ -257,12 +268,13 @@ extract_meta() {
     M_COMMENT=$(sed -n 's/^Comment=//p' "$desktop" | head -n1)
     M_VERSION=$(sed -n 's/^X-AppImage-Version=//p' "$desktop" | head -n1)
     icon_name=$(sed -n 's/^Icon=//p' "$desktop" | head -n1)
-    ( cd "$tmp" && "$run" --appimage-extract "$icon_name.*" >/dev/null 2>&1; "$run" --appimage-extract 'usr/share/icons/*' >/dev/null 2>&1 ) || true
+    unsq "$icon_name.*" 'usr/share/icons/*'
     M_ICON=$(find "$root" -maxdepth 1 \( -name "$icon_name.png" -o -name "$icon_name.svg" \) | head -n1 || true)
     [[ -n "$M_ICON" ]] || M_ICON=$(find "$root/usr/share/icons" -name "$icon_name.png" 2>/dev/null | sort -V | tail -n1 || true)
   fi
   [[ -n "$M_ICON" ]] || M_ICON=$(readlink -f "$root/.DirIcon" 2>/dev/null || true)
-  [[ -f "$M_ICON" ]] || M_ICON=""
+  # A symlink inside the image must not point the preview at a file outside it.
+  [[ $M_ICON == "$(readlink -f "$root")"/* && -f $M_ICON ]] || M_ICON=""
 }
 
 # info <file>: JSON preview for the install window (icon is copied to the cache dir).

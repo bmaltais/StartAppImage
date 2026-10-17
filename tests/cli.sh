@@ -39,18 +39,15 @@ fresh_home() {
   mkdir -p "$HOME/Downloads"
 }
 
-# fake_appimage FILE NAME VERSION: a script that answers --appimage-extract like a real AppImage.
+# fake_appimage FILE NAME VERSION [ICON-EXT]: an ELF header stub followed by a real squashfs, so it is read
+# like an AppImage but cannot be run (it would fail to execute, which proves nothing ran it).
 fake_appimage() {
-  cat >"$1" <<EOF
-#!/bin/sh
-if [ "\$1" = --appimage-extract ]; then
-  mkdir -p squashfs-root
-  printf '[Desktop Entry]\nName=$2\nComment=A demo\nCategories=Graphics;\nX-AppImage-Version=$3\nIcon=demo\nExec=demo\n' >squashfs-root/demo.desktop
-  printf 'png' >squashfs-root/demo.png
-  exit 0
-fi
-echo "ran \$*"
-EOF
+  local src sq ext=${4:-png}
+  src=$(mktemp -d -p "$SCRATCH"); sq="$src.sq"
+  printf '[Desktop Entry]\nName=%s\nComment=A demo\nCategories=Graphics;\nX-AppImage-Version=%s\nIcon=demo\nExec=demo\n' "$2" "$3" >"$src/demo.desktop"
+  if [[ $ext == svg ]]; then printf '<svg/>' >"$src/demo.svg"; else printf 'png' >"$src/demo.png"; fi
+  mksquashfs "$src" "$sq" -noappend -quiet >/dev/null
+  { printf '\177ELF'; head -c 36 /dev/zero; printf '\100\0\0\0\0\0\0\0'; head -c 10 /dev/zero; printf '\100\0'; head -c 4 /dev/zero; cat "$sq"; } >"$1"
   chmod +x "$1"
 }
 
@@ -291,8 +288,7 @@ t_remove_an_unknown_app_fails() {
 }
 
 t_an_svg_icon_is_installed_listed_and_removed_with_the_app() {
-  fake_appimage "$HOME/Downloads/Vec.AppImage" "Vec" 1
-  sed -i 's/demo\.png/demo.svg/; s/printf .png./printf "<svg\/>"/' "$HOME/Downloads/Vec.AppImage"
+  fake_appimage "$HOME/Downloads/Vec.AppImage" "Vec" 1 svg
   cli add "$HOME/Downloads/Vec.AppImage"; ok
   local svg="$HOME/.local/share/icons/hicolor/scalable/apps/startappimage-vec.svg"
   exists "$svg"
@@ -455,7 +451,18 @@ t_info_previews_an_appimage_and_knows_when_it_is_installed() {
 
 t_run_starts_an_installed_app_by_name() {
   install_demo
+  printf '#!/bin/sh\necho "ran $*"\n' >"$APPS/demo-app.AppImage"
   cli run "Demo App"; ok; has "$OUT" "ran" "run"
+}
+
+t_info_never_runs_the_file() {
+  local f="$HOME/Downloads/Demo.AppImage"
+  fake_appimage "$f" "Demo App" 1.2
+  cli info "$f"; ok
+  eq "$(jqv '.name')" "Demo App" "name"
+  [[ ! -e "$HOME/Downloads/squashfs-root" ]] || fail "info extracted next to the file"
+  printf 'not an appimage' >"$HOME/Downloads/Plain.AppImage"; chmod +x "$HOME/Downloads/Plain.AppImage"
+  cli info "$HOME/Downloads/Plain.AppImage"; refused "not a valid AppImage"
 }
 
 # --- runner -------------------------------------------------------------------
