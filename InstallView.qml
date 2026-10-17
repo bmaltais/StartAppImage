@@ -18,6 +18,10 @@ Item {
   readonly property bool installed: view.meta.installed === true
   readonly property bool sameVersion: view.installed && !!view.meta.version && view.meta.version === view.meta.installedVersion
   readonly property bool failed: view.stage === "failed"
+  // The file could not be read at all: there is no app to say where it would go.
+  readonly property bool unreadable: view.failed && !view.meta.name
+  // The log says no more than the headline already does.
+  readonly property bool logIsHeadline: view.svc.installLog.trim() === view.lastLine
   readonly property string lastLine: {
     var lines = view.svc.installLog.trim().split("\n")
     return lines.length ? lines[lines.length - 1] : ""
@@ -158,6 +162,7 @@ Item {
         Text {
           textFormat: Text.PlainText
           Layout.topMargin: Style.spacing.md
+          visible: !view.unreadable
           text: view.stage === "ready" ? "INSTALL TO" : "INSTALLS TO"
           color: Color.muted
           font.family: Style.font.family
@@ -217,7 +222,7 @@ Item {
         Text {
           textFormat: Text.PlainText
           Layout.fillWidth: true
-          visible: view.stage !== "ready"
+          visible: view.stage !== "ready" && !view.unreadable
           text: view.svc.short(view.svc.installDir || "") + "  +  an entry in the app launcher"
           color: Color.foreground
           font.family: Style.font.family
@@ -279,14 +284,18 @@ Item {
         }
       }
 
-      Text {
-        textFormat: Text.PlainText
+      // A TextEdit, not a Text, so the result (an error to look up or a command to run) can be selected and copied.
+      TextEdit {
+        textFormat: TextEdit.PlainText
+        readOnly: true
+        selectByMouse: true
         Layout.fillWidth: true
-        wrapMode: Text.Wrap
+        wrapMode: TextEdit.Wrap
         font.family: Style.font.family
         font.pixelSize: Style.font.body
+        selectionColor: Color.accent
         color: view.failed ? Color.urgent : ((view.stage === "done" || view.stage === "removed") ? Color.accent : Color.foreground)
-        text: view.failed ? "That did not work."
+        text: view.failed ? "That did not work." + (view.lastLine !== "" ? "\n" + view.lastLine.replace(/^startappimage: /, "") : "")
           : view.stage === "done" ? "Installed. It is in your app launcher now."
           : view.stage === "removed" ? "Uninstalled. The app and its launcher entry are gone."
           : view.stage === "removing" ? "Uninstalling..."
@@ -295,7 +304,7 @@ Item {
 
       Text {
         textFormat: Text.PlainText
-        visible: view.stage !== "done" && view.stage !== "removed" && view.svc.installLog !== ""
+        visible: view.stage !== "done" && view.stage !== "removed" && view.svc.installLog !== "" && !view.logIsHeadline
         text: view.showDetails ? "Hide details" : "Show details"
         color: Color.muted
         font.family: Style.font.family
@@ -305,19 +314,22 @@ Item {
       }
       Rectangle {
         Layout.fillWidth: true
-        visible: view.showDetails || (view.failed && view.svc.installLog !== "")
+        visible: !view.logIsHeadline && (view.showDetails || (view.failed && view.svc.installLog !== ""))
         implicitHeight: Math.min(logText.implicitHeight, Style.space(140)) + Style.spacing.xxl * 2
         radius: Math.max(Style.cornerRadius, Style.space(6))
         color: Util.alpha(Color.foreground, 0.05)
         clip: true
-        Text {
-          textFormat: Text.PlainText
+        TextEdit {
+          textFormat: TextEdit.PlainText
+          readOnly: true
+          selectByMouse: true
+          selectionColor: Color.accent
           id: logText
           anchors.fill: parent
           anchors.margins: Style.spacing.xxl
           text: view.svc.installLog.trim()
           color: Color.muted
-          wrapMode: Text.Wrap
+          wrapMode: TextEdit.Wrap
           font.family: Style.font.family
           font.pixelSize: Style.font.bodySmall
         }

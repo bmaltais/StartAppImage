@@ -26,8 +26,11 @@
 ## Install
 
 ```sh
+sudo pacman -S --needed squashfs-tools
 omarchy plugin add https://github.com/bmaltais/StartAppImage.git --enable
 ```
+
+`squashfs-tools` provides `unsquashfs`, which reads an AppImage's name and icon without running it. Omarchy does not ship it, and installing an AppImage fails with "missing dependency: unsquashfs" until it is there.
 
 That is all. A few seconds after the shell loads, the **settings window** opens once and offers to switch on the three things that make StartAppImage feel built in. **Enable recommended** turns them all on; **Not now** leaves everything as it was.
 
@@ -45,7 +48,7 @@ Every change in the settings window **applies the moment you make it**, as in St
 
 <img src="screenshots/settings-window.png" alt="The settings window floating over the manager: pages on the left (General, Bar, Updates, Window), the settings of the chosen page on the right, and a footer with Reset to defaults" width="620">
 
-Only your home folder is touched. Everything the plugin needs (`bash`, `curl`, `jq`, `notify-send`) comes with Omarchy, except `unsquashfs` (package `squashfs-tools`), which reads an AppImage's name and icon without running it.
+Only your home folder is touched. Everything the plugin needs (`bash`, `curl`, `jq`, `notify-send`) comes with Omarchy, except `unsquashfs` (package `squashfs-tools`, installed in the first step above).
 
 Prefer the terminal? `startappimage setup --launcher true --handler true --cli true` does the same for those three, and `startappimage integration` prints the current state as JSON. `register` and `unregister` still work.
 

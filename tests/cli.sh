@@ -476,6 +476,15 @@ t_every_qml_text_item_is_plain_text() {
   done
 }
 
+t_info_without_unsquashfs_says_which_package_to_install() {
+  fake_appimage "$HOME/Downloads/Demo.AppImage" "Demo App" 1.2
+  mkdir "$SCRATCH/nobin"
+  local t; for t in head realpath dirname basename cat mktemp rm date sed grep jq readlink od tr; do ln -s "$(command -v "$t")" "$SCRATCH/nobin/$t"; done
+  OUT=$(PATH="$SCRATCH/nobin" "$BASH" "$CLI" info "$HOME/Downloads/Demo.AppImage" 2>"$SCRATCH/err"); CODE=$?
+  ERR=$(<"$SCRATCH/err")
+  refused "sudo pacman -S squashfs-tools"
+}
+
 t_info_never_runs_the_file() {
   local f="$HOME/Downloads/Demo.AppImage"
   fake_appimage "$f" "Demo App" 1.2
