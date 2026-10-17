@@ -273,7 +273,9 @@ extract_meta() {
     [[ -n "$M_ICON" ]] || M_ICON=$(find "$root/usr/share/icons" -name "$icon_name.png" 2>/dev/null | sort -V | tail -n1 || true)
   fi
   [[ -n "$M_ICON" ]] || M_ICON=$(readlink -f "$root/.DirIcon" 2>/dev/null || true)
-  # A symlink inside the image must not point the preview at a file outside it.
+  # A symlink inside the image (the named icon or .DirIcon) must not point the preview at a
+  # file outside it: resolve it, and keep it only if it still lands under the extraction root.
+  [[ -z $M_ICON ]] || M_ICON=$(readlink -f "$M_ICON" 2>/dev/null || true)
   [[ $M_ICON == "$(readlink -f "$root")"/* && -f $M_ICON ]] || M_ICON=""
 }
 

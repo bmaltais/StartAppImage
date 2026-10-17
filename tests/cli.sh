@@ -39,13 +39,14 @@ fresh_home() {
   mkdir -p "$HOME/Downloads"
 }
 
-# fake_appimage FILE NAME VERSION [ICON-EXT]: an ELF header stub followed by a real squashfs, so it is read
+# fake_appimage FILE NAME VERSION [ICON-EXT|link:TARGET]: an ELF header stub followed by a real squashfs, so it is read
 # like an AppImage but cannot be run (it would fail to execute, which proves nothing ran it).
 fake_appimage() {
   local src sq ext=${4:-png}
   src=$(mktemp -d -p "$SCRATCH"); sq="$src.sq"
   printf '[Desktop Entry]\nName=%s\nComment=A demo\nCategories=Graphics;\nX-AppImage-Version=%s\nIcon=demo\nExec=demo\n' "$2" "$3" >"$src/demo.desktop"
-  if [[ $ext == svg ]]; then printf '<svg/>' >"$src/demo.svg"; else printf 'png' >"$src/demo.png"; fi
+  if [[ $ext == link:* ]]; then ln -s "${ext#link:}" "$src/demo.png"
+  elif [[ $ext == svg ]]; then printf '<svg/>' >"$src/demo.svg"; else printf 'png' >"$src/demo.png"; fi
   mksquashfs "$src" "$sq" -noappend -quiet >/dev/null
   { printf '\177ELF'; head -c 36 /dev/zero; printf '\100\0\0\0\0\0\0\0'; head -c 10 /dev/zero; printf '\100\0'; head -c 4 /dev/zero; cat "$sq"; } >"$1"
   chmod +x "$1"
@@ -453,6 +454,16 @@ t_run_starts_an_installed_app_by_name() {
   install_demo
   printf '#!/bin/sh\necho "ran $*"\n' >"$APPS/demo-app.AppImage"
   cli run "Demo App"; ok; has "$OUT" "ran" "run"
+}
+
+t_info_ignores_an_icon_symlink_that_leaves_the_image() {
+  fresh_home
+  printf 'secret' >"$HOME/secret.txt"
+  fake_appimage "$HOME/Downloads/Evil.AppImage" "Evil" 1 "link:$HOME/secret.txt"
+  cli info "$HOME/Downloads/Evil.AppImage"; ok
+  eq "$(jqv '.name')" "Evil" "name"
+  eq "$(jqv '.icon')" "" "icon"
+  ! grep -rqs secret "$HOME/.cache" || fail "the symlink target was copied into the cache"
 }
 
 t_info_never_runs_the_file() {
