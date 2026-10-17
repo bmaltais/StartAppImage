@@ -499,7 +499,8 @@ Item {
           root.installState = "ready"
           root.chooseDir()
         } catch (e) {
-          root.installLog = "Could not read this file."
+          // The CLI's own reason (stderr) is kept; this is only for output that was not JSON at all.
+          if (root.installLog.trim() === "") root.installLog = "Could not read this file."
           root.installState = "failed"
         }
       }
