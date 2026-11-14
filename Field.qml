@@ -1,7 +1,6 @@
 // A single-line text field in the Start family's look.
 import QtQuick
 import qs.Commons
-import qs.Ui
 
 Rectangle {
   id: field
